@@ -17,6 +17,7 @@ type SessionContextValue = {
   createLink: (mode: LinkMode) => Promise<Link>;
   joinLink: (code: string) => Promise<Link>;
   regenerateInvite: () => Promise<string>;
+  setTimeZone: (timeZone: string) => Promise<void>;
   leaveLink: () => Promise<void>;
   updateProfile: (patch: Partial<Pick<Profile, 'displayName' | 'avatarEmoji'>>) => Promise<void>;
 };
@@ -106,6 +107,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const code = await data.regenerateInvite();
         setLink((current) => (current ? { ...current, inviteCode: code } : current));
         return code;
+      },
+      setTimeZone: async (timeZone) => {
+        // Le lien renvoyé porte un `today` recalculé : changer d'horloge peut
+        // changer la journée en cours, donc la question affichée.
+        setLink(await data.setTimeZone(timeZone));
       },
       leaveLink: async () => {
         await data.leaveLink();

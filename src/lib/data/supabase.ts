@@ -3,7 +3,7 @@ import { t } from '@/lib/strings';
 import { requireSupabase } from '@/lib/supabase';
 import type { Answer, DailyPrompt, HistoryEntry, Link, LinkMode, Profile, Session, TodayState } from '@/lib/types';
 
-import { DataError, localDate, type DataAdapter, type DataErrorCode } from './adapter';
+import { DataError, deviceTimeZone, type DataAdapter, type DataErrorCode } from './adapter';
 
 type AnswerRow = {
   id: string;
@@ -28,6 +28,9 @@ type MyLinkRow = {
   mode: string;
   created_at: string;
   invite_code: string | null;
+  time_zone: string;
+  day_start_hour: number;
+  today: string;
   partner_id: string | null;
   partner_name: string | null;
   partner_emoji: string | null;
@@ -65,6 +68,9 @@ function toLink(row: MyLinkRow): Link {
       : 'couple',
     createdAt: row.created_at,
     inviteCode: row.invite_code,
+    timeZone: row.time_zone,
+    today: row.today,
+    dayStartHour: row.day_start_hour,
     partner:
       row.partner_id && row.partner_name
         ? {
@@ -84,6 +90,8 @@ function toDataError(message: string): DataError {
     'link_full',
     'already_linked',
     'no_link',
+    'invalid_time_zone',
+    'time_zone_cooldown',
     'auth',
   ];
   const hit = known.find((code) => message.includes(code));
@@ -174,7 +182,12 @@ export const supabaseAdapter: DataAdapter = {
   },
 
   async createLink(mode) {
-    const { error } = await requireSupabase().rpc('create_link', { p_mode: mode });
+    // Le fuseau de l'appareil n'est proposé qu'ici : ensuite c'est le lien qui
+    // porte l'horloge, et il ne bouge que sur action explicite.
+    const { error } = await requireSupabase().rpc('create_link', {
+      p_mode: mode,
+      p_time_zone: deviceTimeZone(),
+    });
     if (error) throw toDataError(error.message);
     const link = await supabaseAdapter.getLink();
     if (!link) throw new DataError('unknown', 'Lien créé mais introuvable.');
@@ -198,6 +211,14 @@ export const supabaseAdapter: DataAdapter = {
     return data;
   },
 
+  async setTimeZone(timeZone) {
+    const { error } = await requireSupabase().rpc('set_link_time_zone', { p_time_zone: timeZone });
+    if (error) throw toDataError(error.message);
+    const link = await supabaseAdapter.getLink();
+    if (!link) throw new DataError('no_link', t.profile.noLink);
+    return link;
+  },
+
   async leaveLink() {
     // Passe par la RPC : elle seule purge les invites (sinon le code rouvre un
     // lien redevenu à un membre) et supprime un lien devenu vide.
@@ -210,7 +231,9 @@ export const supabaseAdapter: DataAdapter = {
     const link = await supabaseAdapter.getLink();
     if (!link) return null;
     const userId = await currentUserId();
-    const date = localDate();
+    // Le jour vient du serveur, dérivé du fuseau du lien. Le calculer ici avec
+    // `new Date()` rendrait les deux appareils désaccordés.
+    const date = link.today;
 
     let prompt = await fetchPrompt(link.id, date);
     if (!prompt) {
@@ -234,10 +257,10 @@ export const supabaseAdapter: DataAdapter = {
     const userId = await currentUserId();
     const { data, error } = await supabase
       .from('answers')
-      .upsert(
-        { prompt_id: promptId, author_id: userId, body, updated_at: new Date().toISOString() },
-        { onConflict: 'prompt_id,author_id' },
-      )
+      // Pas d'`updated_at` : le défaut de colonne le pose à l'insertion et le
+      // trigger answers_touch_updated_at à la mise à jour. L'envoyer depuis le
+      // client laisserait écrire un horodatage arbitraire.
+      .upsert({ prompt_id: promptId, author_id: userId, body }, { onConflict: 'prompt_id,author_id' })
       .select('id, prompt_id, author_id, body, created_at')
       .single();
     if (error) throw new DataError('unknown', error.message);
@@ -275,7 +298,7 @@ export const supabaseAdapter: DataAdapter = {
       .from('daily_prompts')
       .select(PROMPT_SELECT)
       .eq('link_id', link.id)
-      .lt('prompt_date', localDate())
+      .lt('prompt_date', link.today)
       .order('prompt_date', { ascending: false })
       .limit(60);
     if (error) throw new DataError('unknown', error.message);
@@ -329,8 +352,11 @@ async function generatePrompt(link: Link, date: string): Promise<DailyPrompt> {
   // donc que l'imprévu, et surtout pas `fetchPrompt`, dont l'erreur doit remonter.
   let invoked = false;
   try {
+    // Pas de `date` dans le corps : la fonction la dérive elle-même du fuseau
+    // du lien. Une date choisie par le client rate le cache à chaque nouvelle
+    // valeur et facture un appel Anthropic pour chacune.
     const { data, error } = await supabase.functions.invoke('daily-prompt', {
-      body: { linkId: link.id, date },
+      body: { linkId: link.id },
       timeout: EDGE_TIMEOUT_MS,
     });
     invoked = !error && Boolean(data?.prompt);

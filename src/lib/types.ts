@@ -16,6 +16,16 @@ export type Link = {
   /** Null while waiting for the second person to join. */
   partner: Profile | null;
   inviteCode: string | null;
+  /**
+   * IANA time zone of the link, and the civil day derived from it by the
+   * server. The couple shares one clock: if each device kept its own, two
+   * partners in two zones would work on two different questions and the
+   * reveal would never happen. The client never computes this.
+   */
+  timeZone: string;
+  today: string;
+  /** Hour at which the link's day rolls over, so a 00:30 answer still counts. */
+  dayStartHour: number;
 };
 
 export type DailyPrompt = {

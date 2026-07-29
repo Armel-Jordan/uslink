@@ -67,6 +67,7 @@ export const fr = {
     save: 'Enregistrer',
     waitingPartner: (name: string) => `${name} n'a pas encore répondu. On garde le suspense.`,
     revealed: 'Vos deux réponses',
+    frozen: (name: string) => `${name} a répondu : votre réponse est figée. C'est ce qui la rend sincère.`,
     you: 'Vous',
     streak: (n: number) => (n <= 1 ? `${n} jour de suite` : `${n} jours de suite`),
     noStreak: 'Commencez votre série aujourd’hui',
@@ -90,7 +91,17 @@ export const fr = {
     save: 'Enregistrer',
     saved: 'Enregistré',
     link: 'Votre lien',
+    noLink: "Vous n'avez pas de lien actif.",
     linkedWith: (name: string) => `Relié(e) à ${name}`,
+    timeZone: 'Fuseau du lien',
+    // L'identifiant IANA est affiché tel quel : le découper donnerait « heure
+    // de London » ou « heure de UTC ». Un nom de ville en anglais mal accordé
+    // est pire qu'un identifiant assumé.
+    timeZoneHint: (zone: string, hour: number) =>
+      `Votre journée commence à ${hour} h (${zone}). Vous partagez une seule horloge : c'est ce qui fait que vous voyez la même question au même moment.`,
+    timeZoneUse: 'Utiliser le fuseau de cet appareil',
+    timeZoneCooldown: 'Le fuseau ne peut être changé qu’une fois par 24 heures.',
+    timeZoneInvalid: 'Ce fuseau horaire est inconnu.',
     inviteCode: "Code d'invitation",
     mode: 'Mode',
     signOut: 'Se déconnecter',

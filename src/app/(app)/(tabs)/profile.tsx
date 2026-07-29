@@ -9,6 +9,7 @@ import { Screen } from '@/components/ui/screen';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { confirmDestructive } from '@/lib/confirm';
+import { DataError, deviceTimeZone, type DataErrorCode } from '@/lib/data';
 import { useSession } from '@/lib/session';
 import { t } from '@/lib/strings';
 
@@ -22,12 +23,20 @@ const MODE_LABELS: Record<string, string> = {
 
 export default function ProfileScreen() {
   const theme = useTheme();
-  const { profile, link, isDemo, updateProfile, signOut, leaveLink } = useSession();
+  const { profile, link, isDemo, updateProfile, setTimeZone, signOut, leaveLink } = useSession();
   const [name, setName] = useState(profile?.displayName ?? '');
   const [emoji, setEmoji] = useState(profile?.avatarEmoji ?? '☀️');
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Les DataError portent un code : sans ce mappage, c'est le texte PostgREST
+  // en anglais qui atterrit dans une UI française.
+  const MESSAGES: Partial<Record<DataErrorCode, string>> = {
+    time_zone_cooldown: t.profile.timeZoneCooldown,
+    invalid_time_zone: t.profile.timeZoneInvalid,
+    no_link: t.profile.noLink,
+  };
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -36,7 +45,8 @@ export default function ProfileScreen() {
       await fn();
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : t.common.error);
+      if (e instanceof DataError) setError(MESSAGES[e.code] ?? t.common.error);
+      else setError(e instanceof Error ? e.message : t.common.error);
       return false;
     } finally {
       setBusy(false);
@@ -117,6 +127,19 @@ export default function ProfileScreen() {
           {/* Pas de code d'invitation ici : cet écran n'est atteignable qu'une
               fois relié, et `join_link` consomme l'invite à l'appairage. Le
               code, et sa régénération, vivent sur l'écran d'appairage. */}
+
+          <ThemedText type="smallBold">{t.profile.timeZone}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            {t.profile.timeZoneHint(link.timeZone, link.dayStartHour)}
+          </ThemedText>
+          {link.timeZone !== deviceTimeZone() ? (
+            <Button
+              label={t.profile.timeZoneUse}
+              variant="secondary"
+              loading={busy}
+              onPress={() => void run(() => setTimeZone(deviceTimeZone()))}
+            />
+          ) : null}
         </Card>
       ) : null}
 

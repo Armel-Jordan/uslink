@@ -124,19 +124,51 @@ select public.join_link((select v from _fxt where k = 'C1'));
 select pg_temp.as_user('44444444-4444-4444-4444-444444444444');
 insert into _fx select 'L2', link_id from public.create_link('friends');
 
--- La question du jour de L1, insérée par Alice (repli client, policy
--- daily_prompts_insert), puis la réponse d'Alice.
+-- Le « aujourd'hui » est désormais celui du LIEN, jamais celui du client ni
+-- current_date (UTC). Les fixtures s'y plient comme le fera l'app.
+insert into _fxt select 'TODAY', public.link_today((select v from _fx where k = 'L1'))::text;
+
+-- P1 : la question du jour, insérée par Alice (repli client, policy
+-- daily_prompts_insert), à laquelle Alice répond.
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 insert into public.daily_prompts (link_id, prompt_date, question, category, source)
-select v, current_date, 'Question de test ?', 'test', 'library' from _fx where k = 'L1';
-insert into _fx select 'P1', id from public.daily_prompts where prompt_date = current_date
-  and link_id = (select v from _fx where k = 'L1');
+select v, (select v::date from _fxt where k = 'TODAY'), 'Question du jour ?', 'test', 'library'
+from _fx where k = 'L1';
+insert into _fx select 'P1', id from public.daily_prompts
+  where link_id = (select v from _fx where k = 'L1')
+    and prompt_date = (select v::date from _fxt where k = 'TODAY');
 
 insert into public.answers (prompt_id, author_id, body)
 select v, '11111111-1111-1111-1111-111111111111', 'Réponse d''Alice' from _fx where k = 'P1';
 insert into _fx select 'A_ALICE', id from public.answers
   where prompt_id = (select v from _fx where k = 'P1')
     and author_id = '11111111-1111-1111-1111-111111111111';
+
+-- P2 : la question d'hier, encore dans la fenêtre d'écriture, à laquelle SEUL
+-- Bob a répondu. C'est le seul contexte où l'édition est encore permise, donc
+-- le seul où l'immutabilité des clés est observable.
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+insert into public.daily_prompts (link_id, prompt_date, question, category, source)
+select v, (select v::date from _fxt where k = 'TODAY') - 1, 'Question d''hier ?', 'test', 'library'
+from _fx where k = 'L1';
+insert into _fx select 'P2', id from public.daily_prompts
+  where link_id = (select v from _fx where k = 'L1')
+    and prompt_date = (select v::date from _fxt where k = 'TODAY') - 1;
+insert into public.answers (prompt_id, author_id, body)
+select v, '22222222-2222-2222-2222-222222222222', 'Réponse de Bob à hier' from _fx where k = 'P2';
+
+-- P3 : une vieille question, hors fenêtre. Insérée hors RLS: la policy
+-- l'interdit désormais, et c'est justement ce qu'on vérifie plus bas.
+reset role;
+insert into public.daily_prompts (link_id, prompt_date, question, category, source)
+select v, (select v::date from _fxt where k = 'TODAY') - 60, 'Vieille question ?', 'test', 'library'
+from _fx where k = 'L1';
+insert into _fx select 'P3', id from public.daily_prompts
+  where link_id = (select v from _fx where k = 'L1')
+    and prompt_date = (select v::date from _fxt where k = 'TODAY') - 60;
+insert into public.answers (prompt_id, author_id, body)
+select v, '11111111-1111-1111-1111-111111111111', 'Vieille réponse d''Alice' from _fx where k = 'P3';
+set local role authenticated;
 
 -- ======================================================= LA RÈGLE DE RÉVÉLATION
 
@@ -191,29 +223,121 @@ select pg_temp.t_raise(
 
 -- ============================================ DÉFAUT 2 — IMMUTABILITÉ DES CLÉS
 
+-- Sur P2, Alice n'a pas répondu : Bob peut donc encore éditer.
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 
 select pg_temp.t_touches(
-  'Bob peut corriger le corps de sa propre réponse',
+  'Bob peut corriger sa réponse tant que le partenaire n''a pas répondu',
   'update public.answers set body = ''Réponse corrigée''
-     where author_id = ''22222222-2222-2222-2222-222222222222''', 1);
+     where author_id = ''22222222-2222-2222-2222-222222222222''
+       and prompt_id = (select v from _fx where k = ''P2'')', 1);
 
 select pg_temp.t_raise(
   'DÉFAUT 2: repointer prompt_id est refusé',
-  'update public.answers set prompt_id = gen_random_uuid()
-     where author_id = ''22222222-2222-2222-2222-222222222222''',
+  'update public.answers set prompt_id = (select v from _fx where k = ''P1'')
+     where author_id = ''22222222-2222-2222-2222-222222222222''
+       and prompt_id = (select v from _fx where k = ''P2'')',
   'immutable_answer_key');
 
 select pg_temp.t_raise(
   'DÉFAUT 2: changer author_id est refusé',
   'update public.answers set author_id = ''11111111-1111-1111-1111-111111111111''
-     where author_id = ''22222222-2222-2222-2222-222222222222''',
+     where author_id = ''22222222-2222-2222-2222-222222222222''
+       and prompt_id = (select v from _fx where k = ''P2'')',
   'immutable_answer_key');
 
 select pg_temp.t_touches(
   'Bob ne peut pas modifier la réponse d''Alice',
   'update public.answers set body = ''détourné''
      where author_id = ''11111111-1111-1111-1111-111111111111''', 0);
+
+-- ============================== DÉFAUT 3 (1re moitié) — FENÊTRE ET GEL
+
+select pg_temp.t_touches(
+  'DÉFAUT 3: une fois le partenaire ayant répondu, ma réponse est GELÉE',
+  'update public.answers set body = ''réécrit après avoir lu l''''autre''
+     where author_id = ''22222222-2222-2222-2222-222222222222''
+       and prompt_id = (select v from _fx where k = ''P1'')', 0);
+
+select pg_temp.t_raise(
+  'DÉFAUT 3: répondre à une vieille question ne déverrouille plus l''archive',
+  'insert into public.answers (prompt_id, author_id, body)
+   select v, ''22222222-2222-2222-2222-222222222222'', ''déverrouillage rétroactif''
+   from _fx where k = ''P3''',
+  'row-level security');
+
+select pg_temp.t_rows(
+  'DÉFAUT 3: la vieille réponse d''Alice reste invisible',
+  'select 1 from public.answers where prompt_id = (select v from _fx where k = ''P3'')', 0);
+
+select pg_temp.t_raise(
+  'Un membre ne peut pas fabriquer une question hors de la fenêtre du jour',
+  'insert into public.daily_prompts (link_id, prompt_date, question, category, source)
+   select v, (select v::date from _fxt where k = ''TODAY'') + 3, ''forgée'', ''test'', ''library''
+   from _fx where k = ''L1''',
+  'row-level security');
+
+-- ==================================== DÉFAUT 1 — LE JOUR EST UNE NOTION SERVEUR
+
+reset role;
+select pg_temp.t_ok(
+  'DÉFAUT 1: link_today suit le fuseau du lien, pas celui du serveur',
+  (select public.link_today(v) is not null from _fx where k = 'L1'));
+
+-- Deux fuseaux aux extrémités du globe: le jour du lien doit bouger avec eux.
+update public.links set time_zone = 'Pacific/Kiritimati' where id = (select v from _fx where k = 'L2');
+select pg_temp.t_ok(
+  'DÉFAUT 1: à UTC+14 le jour du lien est en avance sur UTC',
+  (select public.link_today(v) >= (now() at time zone 'UTC')::date from _fx where k = 'L2'));
+
+update public.links set time_zone = 'Pacific/Midway' where id = (select v from _fx where k = 'L2');
+select pg_temp.t_ok(
+  'DÉFAUT 1: à UTC−11 le jour du lien est en retard sur UTC',
+  (select public.link_today(v) <= (now() at time zone 'UTC')::date from _fx where k = 'L2'));
+
+select pg_temp.t_raise(
+  'Un fuseau inconnu est refusé',
+  'update public.links set time_zone = ''Mars/Olympus'' where id = (select v from _fx where k = ''L2'')',
+  'invalid_time_zone');
+
+-- `at time zone` accepte les specs POSIX en inversant leur signe, et accepte
+-- même 'FOO7' : seul pg_timezone_names est un vrai contrôle. Sans lui, un
+-- couple installe une horloge fausse de plusieurs heures sans aucune erreur.
+select pg_temp.t_raise(
+  'Une spécification POSIX est refusée (elle inverserait le signe)',
+  'update public.links set time_zone = ''GMT+02:00'' where id = (select v from _fx where k = ''L2'')',
+  'invalid_time_zone');
+select pg_temp.t_raise(
+  'Une chaîne arbitraire acceptée par at-time-zone est refusée',
+  'update public.links set time_zone = ''FOO7'' where id = (select v from _fx where k = ''L2'')',
+  'invalid_time_zone');
+
+-- Un déplacement d'horloge vers l'ouest recule link_today d'un jour : la
+-- question déjà ouverte ne doit pas devenir non répondable pour les deux.
+update public.links set time_zone = 'Pacific/Kiritimati' where id = (select v from _fx where k = 'L1');
+select pg_temp.t_ok(
+  'Après un saut d''horloge, la question du jour reste répondable',
+  (select public.prompt_is_open(v) from _fx where k = 'P1'));
+update public.links set time_zone = 'Pacific/Midway' where id = (select v from _fx where k = 'L1');
+select pg_temp.t_ok(
+  'Après un saut d''horloge en sens inverse, elle reste répondable',
+  (select public.prompt_is_open(v) from _fx where k = 'P1'));
+select pg_temp.t_ok(
+  'Un saut d''horloge ne rouvre pas pour autant l''archive',
+  (select not public.prompt_is_open(v) from _fx where k = 'P3'));
+update public.links set time_zone = 'Europe/Paris' where id = (select v from _fx where k = 'L1');
+
+set local role authenticated;
+select pg_temp.as_user('44444444-4444-4444-4444-444444444444');
+select pg_temp.t_allow('Un membre peut choisir le fuseau de son lien',
+  'select public.set_link_time_zone(''America/Montreal'')');
+select pg_temp.t_raise(
+  'Changer de fuseau deux fois de suite est refusé (une fois par 24 h)',
+  'select public.set_link_time_zone(''Europe/Paris'')', 'time_zone_cooldown');
+
+select pg_temp.as_user('33333333-3333-3333-3333-333333333333');
+select pg_temp.t_raise('Sans lien, on ne choisit aucun fuseau',
+  'select public.set_link_time_zone(''Europe/Paris'')', 'no_link');
 
 -- ================================================== DÉFAUT 7 — APPAIRAGE
 

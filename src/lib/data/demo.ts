@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { pickLibraryPrompt } from '@/lib/prompt-library';
 import type { Answer, DailyPrompt, HistoryEntry, Link, LinkMode, Profile, Session, TodayState } from '@/lib/types';
 
-import { DataError, localDate, type DataAdapter } from './adapter';
+import { DataError, deviceTimeZone, type DataAdapter } from './adapter';
 
 /**
  * Local-only adapter so the app is fully usable before any backend exists.
@@ -45,10 +45,33 @@ function code() {
   return out;
 }
 
+/** Bascule à 4 h, comme `links.day_start_hour` côté serveur. */
+const DAY_START_HOUR = 4;
+
+/**
+ * Copie privée, assumée : la démo n'a pas de serveur, donc pas d'horloge
+ * partagée, donc aucun désaccord possible entre deux appareils. Côté Supabase
+ * cette fonction n'existe plus — le jour vient de `link_today()`.
+ */
+function localDate(d: Date = new Date()): string {
+  // `setHours` fait de l'arithmétique d'heure murale, comme
+  // `(now() at time zone tz) - make_interval(hours => n)` côté SQL. Retrancher
+  // 4 h à l'instant (`getTime() - 4 * 3600e3`) décalerait la bascule d'une
+  // heure les jours de changement d'heure.
+  const shifted = new Date(d);
+  shifted.setHours(shifted.getHours() - DAY_START_HOUR);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${shifted.getFullYear()}-${pad(shifted.getMonth() + 1)}-${pad(shifted.getDate())}`;
+}
+
 function daysAgo(n: number) {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return localDate(d);
+}
+
+function demoLink(partial: Omit<Link, 'timeZone' | 'today' | 'dayStartHour'>): Link {
+  return { ...partial, timeZone: deviceTimeZone(), today: localDate(), dayStartHour: DAY_START_HOUR };
 }
 
 function emptyState(): DemoState {
@@ -200,20 +223,23 @@ export const demoAdapter: DataAdapter = {
   },
 
   async getLink() {
-    return (await read()).link;
+    const link = (await read()).link;
+    // `today` est recalculé à chaque lecture: le stocker le figerait au jour de
+    // l'appairage, et la démo passerait minuit sans changer de question.
+    return link ? { ...link, today: localDate() } : null;
   },
 
   async createLink(mode) {
     const state = await read();
     requireSession(state);
     // In demo the partner joins immediately — otherwise there is nothing to reveal.
-    const link: Link = {
+    const link = demoLink({
       id: id('link'),
       mode,
       createdAt: new Date().toISOString(),
       partner: PARTNER_PROFILE,
       inviteCode: code(),
-    };
+    });
     const next = { ...state, link };
     seedHistory(next, link);
     await write(next);
@@ -224,13 +250,14 @@ export const demoAdapter: DataAdapter = {
     const state = await read();
     requireSession(state);
     if (input.trim().length !== 6) throw new DataError('invalid_code', 'Code invalide.');
-    const link: Link = {
+    const link = demoLink({
       id: id('link'),
       mode: 'couple',
       createdAt: new Date().toISOString(),
       partner: PARTNER_PROFILE,
-      inviteCode: input.trim().toUpperCase(),
-    };
+      // Le code est consommé à l'appairage, comme côté Supabase.
+      inviteCode: null,
+    });
     const next = { ...state, link };
     seedHistory(next, link);
     await write(next);
@@ -240,8 +267,17 @@ export const demoAdapter: DataAdapter = {
   async regenerateInvite() {
     const state = await read();
     const link = requireLink(state);
+    if (link.partner) throw new DataError('link_full', 'Ce lien est déjà complet.');
     const next = code();
     await write({ ...state, link: { ...link, inviteCode: next } });
+    return next;
+  },
+
+  async setTimeZone(timeZone) {
+    const state = await read();
+    const link = requireLink(state);
+    const next = { ...link, timeZone, today: localDate() };
+    await write({ ...state, link: next });
     return next;
   },
 

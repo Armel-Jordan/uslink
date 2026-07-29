@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, StyleSheet, View } from 'react-native';
 
 import { AnswerBubble } from '@/components/answer-bubble';
 import { ThemedText } from '@/components/themed-text';
@@ -46,8 +46,18 @@ export default function TodayScreen() {
         await load();
         if (active) setLoading(false);
       })();
+
+      // `useFocusEffect` ne se réarme pas au retour de veille : une app laissée
+      // ouverte traverserait la bascule de journée en affichant la question
+      // d'hier. Le jour vient du serveur, donc seul un rechargement le voit
+      // changer.
+      const sub = AppState.addEventListener('change', (next) => {
+        if (next === 'active' && active) void load();
+      });
+
       return () => {
         active = false;
+        sub.remove();
       };
     }, [load]),
   );
@@ -176,14 +186,24 @@ export default function TodayScreen() {
                 </Card>
               )}
 
-              <Button
-                label={t.today.edit}
-                variant="ghost"
-                onPress={() => {
-                  setDraft(today.mine?.body ?? '');
-                  setEditing(true);
-                }}
-              />
+              {/* Une fois que le partenaire a répondu, la policy answers_update
+                  gèle la ligne : proposer « Modifier » ne produirait qu'une
+                  erreur RLS brute. Le gel est la raison d'être du produit, il
+                  se dit plutôt qu'il ne se cache. */}
+              {today.theirs ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  {t.today.frozen(partnerName)}
+                </ThemedText>
+              ) : (
+                <Button
+                  label={t.today.edit}
+                  variant="ghost"
+                  onPress={() => {
+                    setDraft(today.mine?.body ?? '');
+                    setEditing(true);
+                  }}
+                />
+              )}
             </View>
           ) : null}
         </>

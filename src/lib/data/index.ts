@@ -7,5 +7,5 @@ import { supabaseAdapter } from './supabase';
 /** One adapter for the whole app, chosen once at startup. */
 export const data: DataAdapter = isSupabaseConfigured ? supabaseAdapter : demoAdapter;
 
-export { DataError, localDate } from './adapter';
+export { DataError, deviceTimeZone } from './adapter';
 export type { DataAdapter, DataErrorCode } from './adapter';

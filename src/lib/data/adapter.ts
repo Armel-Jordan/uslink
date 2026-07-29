@@ -7,6 +7,8 @@ export type DataErrorCode =
   | 'already_linked'
   | 'no_link'
   | 'no_prompt'
+  | 'invalid_time_zone'
+  | 'time_zone_cooldown'
   | 'auth'
   | 'unknown';
 
@@ -42,6 +44,8 @@ export type DataAdapter = {
   joinLink(code: string): Promise<Link>;
   /** Un code est consommé à l'appairage et purgé au départ : il faut pouvoir en refaire un. */
   regenerateInvite(): Promise<string>;
+  /** Déplace l'horloge du couple. Explicite : un voyage ne bouge pas la journée de l'autre tout seul. */
+  setTimeZone(timeZone: string): Promise<Link>;
   leaveLink(): Promise<void>;
 
   getToday(): Promise<TodayState | null>;
@@ -52,10 +56,16 @@ export type DataAdapter = {
   getStreak(): Promise<number>;
 };
 
-/** Local calendar day of the device, `YYYY-MM-DD`. */
-export function localDate(d: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/**
+ * IANA time zone of the device — proposé au serveur à la création d'un lien,
+ * jamais utilisé pour dater quoi que ce soit. Le jour vient de `Link.today`.
+ */
+export function deviceTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Paris';
+  } catch {
+    return 'Europe/Paris';
+  }
 }
 
 export function makePrompt(

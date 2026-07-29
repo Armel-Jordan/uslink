@@ -73,9 +73,9 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { linkId, date } = (await req.json()) as { linkId?: string; date?: string };
-    if (!linkId || !date) {
-      return json({ error: 'linkId and date are required' }, 400);
+    const { linkId } = (await req.json()) as { linkId?: string };
+    if (!linkId) {
+      return json({ error: 'linkId is required' }, 400);
     }
 
     const authHeader = req.headers.get('Authorization');
@@ -95,6 +95,14 @@ Deno.serve(async (req: Request) => {
     }
 
     const admin = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+    // The day is derived from the link's own clock, never taken from the body:
+    // a client-chosen date misses the cache on every new value and bills an
+    // Anthropic call for each one.
+    const { data: date, error: dayError } = await admin.rpc('link_today', { p_link: linkId });
+    if (dayError || !date) {
+      return json({ error: dayError?.message ?? 'could not resolve the link day' }, 500);
+    }
 
     // Idempotent: one prompt per link per day, whoever opens the app first.
     const existing = await admin
