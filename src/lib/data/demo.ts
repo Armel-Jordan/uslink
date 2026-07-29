@@ -3,6 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ITEM_KINDS, pickLibraryDay } from '@/lib/prompt-library';
 import type {
   Answer,
+  Goal,
+  Interest,
+  Onboarding,
   DailyPrompt,
   HistoryEntry,
   ItemKind,
@@ -45,6 +48,16 @@ type DemoState = {
   prompts: DailyPrompt[];
   answers: Answer[];
   seeded: boolean;
+  onboarding: Onboarding;
+};
+
+const EMPTY_ONBOARDING: Onboarding = {
+  birthDate: null,
+  city: null,
+  interests: [],
+  goals: [],
+  relationshipStartedOn: null,
+  completed: false,
 };
 
 function id(prefix: string) {
@@ -83,14 +96,28 @@ function daysAgo(n: number) {
   return localDate(d);
 }
 
-function demoLink(partial: Omit<Link, 'timeZone' | 'today' | 'dayStartHour' | 'locale'>): Link {
+function demoLink(
+  partial: Omit<Link, 'timeZone' | 'today' | 'dayStartHour' | 'locale' | 'startedOn' | 'daysTogether' | 'partnerStartedOn'>,
+  startedOn: string | null,
+): Link {
   return {
     ...partial,
     timeZone: deviceTimeZone(),
     today: localDate(),
     dayStartHour: DAY_START_HOUR,
     locale: appLocale,
+    startedOn,
+    daysTogether: daysBetween(startedOn, localDate()),
+    // Pas de second membre réel en démo : rien à réconcilier.
+    partnerStartedOn: null,
   };
+}
+
+function daysBetween(from: string | null, to: string): number | null {
+  if (!from) return null;
+  const a = new Date(`${from}T00:00:00`);
+  const b = new Date(`${to}T00:00:00`);
+  return Math.max(0, Math.round((b.getTime() - a.getTime()) / 86_400_000));
 }
 
 function emptyState(): DemoState {
@@ -101,6 +128,7 @@ function emptyState(): DemoState {
     prompts: [],
     answers: [],
     seeded: false,
+    onboarding: { ...EMPTY_ONBOARDING },
   };
 }
 
@@ -285,6 +313,34 @@ export const demoAdapter: DataAdapter = {
     notify(null);
   },
 
+  async getOnboarding() {
+    return (await read()).onboarding;
+  },
+
+  async saveOnboarding(patch) {
+    const state = await read();
+    requireSession(state);
+    const onboarding: Onboarding = { ...state.onboarding, ...patch };
+    // Le lien porte la date : si elle change, le compteur suit.
+    const link = state.link
+      ? {
+          ...state.link,
+          startedOn: onboarding.relationshipStartedOn,
+          daysTogether: daysBetween(onboarding.relationshipStartedOn, localDate()),
+        }
+      : null;
+    await write({ ...state, onboarding, link });
+    return onboarding;
+  },
+
+  async setStartedOn(date) {
+    const state = await read();
+    const link = requireLink(state);
+    const next = { ...link, startedOn: date, daysTogether: daysBetween(date, localDate()) };
+    await write({ ...state, link: next });
+    return next;
+  },
+
   async getProfile() {
     const state = await read();
     requireSession(state);
@@ -303,20 +359,25 @@ export const demoAdapter: DataAdapter = {
     const link = (await read()).link;
     // `today` est recalculé à chaque lecture: le stocker le figerait au jour de
     // l'appairage, et la démo passerait minuit sans changer de question.
-    return link ? { ...link, today: localDate() } : null;
+    if (!link) return null;
+    const today = localDate();
+    return { ...link, today, daysTogether: daysBetween(link.startedOn, today) };
   },
 
   async createLink(mode) {
     const state = await read();
     requireSession(state);
     // In demo the partner joins immediately — otherwise there is nothing to reveal.
-    const link = demoLink({
-      id: id('link'),
-      mode,
-      createdAt: new Date().toISOString(),
-      partner: PARTNER_PROFILE,
-      inviteCode: code(),
-    });
+    const link = demoLink(
+      {
+        id: id('link'),
+        mode,
+        createdAt: new Date().toISOString(),
+        partner: PARTNER_PROFILE,
+        inviteCode: code(),
+      },
+      state.onboarding.relationshipStartedOn,
+    );
     const next = { ...state, link };
     seedHistory(next, link);
     await write(next);
@@ -327,14 +388,17 @@ export const demoAdapter: DataAdapter = {
     const state = await read();
     requireSession(state);
     if (input.trim().length !== 6) throw new DataError('invalid_code', 'Code invalide.');
-    const link = demoLink({
-      id: id('link'),
-      mode: 'couple',
-      createdAt: new Date().toISOString(),
-      partner: PARTNER_PROFILE,
-      // Le code est consommé à l'appairage, comme côté Supabase.
-      inviteCode: null,
-    });
+    const link = demoLink(
+      {
+        id: id('link'),
+        mode: 'couple',
+        createdAt: new Date().toISOString(),
+        partner: PARTNER_PROFILE,
+        // Le code est consommé à l'appairage, comme côté Supabase.
+        inviteCode: null,
+      },
+      state.onboarding.relationshipStartedOn,
+    );
     const next = { ...state, link };
     seedHistory(next, link);
     await write(next);

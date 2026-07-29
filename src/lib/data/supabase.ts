@@ -1,14 +1,18 @@
 import { ITEM_KINDS, pickLibraryDay } from '@/lib/prompt-library';
 import { FALLBACK_LOCALE, LOCALES, locale as appLocale, t, type Locale } from '@/lib/strings';
 import { requireSupabase } from '@/lib/supabase';
+import { GOALS, INTERESTS } from '@/lib/types';
 import type {
   Answer,
+  Goal,
+  Interest,
   DailyPrompt,
   HistoryEntry,
   ItemKind,
   ItemState,
   Link,
   LinkMode,
+  Onboarding,
   Profile,
   Session,
   Stance,
@@ -49,6 +53,9 @@ type MyLinkRow = {
   day_start_hour: number;
   today: string;
   locale: string;
+  started_on: string | null;
+  days_together: number | null;
+  partner_started_on: string | null;
   partner_id: string | null;
   partner_name: string | null;
   partner_emoji: string | null;
@@ -119,6 +126,9 @@ function toLink(row: MyLinkRow): Link {
     today: row.today,
     dayStartHour: row.day_start_hour,
     locale: (LOCALES as string[]).includes(row.locale) ? (row.locale as Locale) : FALLBACK_LOCALE,
+    startedOn: row.started_on,
+    daysTogether: row.days_together,
+    partnerStartedOn: row.partner_started_on,
     partner:
       row.partner_id && row.partner_name
         ? {
@@ -141,6 +151,7 @@ function toDataError(message: string): DataError {
     'invalid_time_zone',
     'time_zone_cooldown',
     'invalid_locale',
+    'invalid_date',
     'auth',
   ];
   const hit = known.find((code) => message.includes(code));
@@ -186,6 +197,71 @@ export const supabaseAdapter: DataAdapter = {
 
   async signOut() {
     await requireSupabase().auth.signOut();
+  },
+
+  async getOnboarding() {
+    const supabase = requireSupabase();
+    const userId = await currentUserId();
+    const { data, error } = await supabase
+      .from('profile_onboarding')
+      .select('birth_date, city, interests, goals, relationship_started_on, completed_at')
+      .eq('id', userId)
+      .maybeSingle();
+    if (error) throw new DataError('unknown', error.message);
+    return {
+      birthDate: data?.birth_date ?? null,
+      city: data?.city ?? null,
+      // On referme les listes ici aussi : la base les contraint, mais rien
+      // n'oblige une ligne écrite avant une évolution à s'y conformer.
+      interests: ((data?.interests ?? []) as string[]).filter((x): x is Interest =>
+        (INTERESTS as readonly string[]).includes(x),
+      ),
+      goals: ((data?.goals ?? []) as string[]).filter((x): x is Goal =>
+        (GOALS as readonly string[]).includes(x),
+      ),
+      relationshipStartedOn: data?.relationship_started_on ?? null,
+      completed: Boolean(data?.completed_at),
+    };
+  },
+
+  async saveOnboarding(patch) {
+    const supabase = requireSupabase();
+    const userId = await currentUserId();
+    const { error } = await supabase.from('profile_onboarding').upsert(
+      {
+        id: userId,
+        ...(patch.birthDate !== undefined ? { birth_date: patch.birthDate } : {}),
+        ...(patch.city !== undefined ? { city: patch.city } : {}),
+        ...(patch.interests !== undefined ? { interests: patch.interests } : {}),
+        ...(patch.goals !== undefined ? { goals: patch.goals } : {}),
+        ...(patch.relationshipStartedOn !== undefined
+          ? { relationship_started_on: patch.relationshipStartedOn }
+          : {}),
+        ...(patch.completed ? { completed_at: new Date().toISOString() } : {}),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' },
+    );
+    if (error) throw new DataError('unknown', error.message);
+
+    // La date de naissance est le seul champ volontairement partagé : le
+    // partenaire en a besoin pour le rappel d'anniversaire.
+    if (patch.birthDate !== undefined) {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ birth_date: patch.birthDate })
+        .eq('id', userId);
+      if (profileError) throw new DataError('unknown', profileError.message);
+    }
+    return supabaseAdapter.getOnboarding();
+  },
+
+  async setStartedOn(date) {
+    const { error } = await requireSupabase().rpc('set_link_started_on', { p_date: date });
+    if (error) throw toDataError(error.message);
+    const link = await supabaseAdapter.getLink();
+    if (!link) throw new DataError('no_link', t.profile.noLink);
+    return link;
   },
 
   async getProfile() {

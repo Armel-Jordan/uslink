@@ -418,6 +418,66 @@ select pg_temp.as_user('33333333-3333-3333-3333-333333333333');
 select pg_temp.t_raise('Sans lien, on ne choisit aucun fuseau',
   'select public.set_link_time_zone(''Europe/Paris'')', 'no_link');
 
+-- ================================ ONBOARDING — CE QUE LE PARTENAIRE NE VOIT PAS
+
+-- Toute la raison d'être de la table séparée : la RLS filtre par LIGNE, donc
+-- une ville posée sur `profiles` serait lisible par le conjoint.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select pg_temp.t_allow(
+  'Chacun écrit ses propres données d''onboarding',
+  'insert into public.profile_onboarding (id, birth_date, city, interests, goals, relationship_started_on)
+   values (''11111111-1111-1111-1111-111111111111'', ''1990-05-04'', ''Montréal'',
+           array[''cuisine'',''voyage''], array[''complicite''], ''2019-09-01'')');
+
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select pg_temp.t_rows(
+  'CONFIDENTIALITÉ: le partenaire ne voit PAS la ville ni la date de naissance',
+  'select 1 from public.profile_onboarding
+     where id = ''11111111-1111-1111-1111-111111111111''', 0);
+select pg_temp.t_touches(
+  'CONFIDENTIALITÉ: le partenaire ne peut pas écrire dans ces données',
+  'update public.profile_onboarding set city = ''détourné''
+     where id = ''11111111-1111-1111-1111-111111111111''', 0);
+select pg_temp.t_allow(
+  'Bob écrit les siennes, avec une autre date de début',
+  'insert into public.profile_onboarding (id, interests, goals, relationship_started_on)
+   values (''22222222-2222-2222-2222-222222222222'', array[''sport'',''musique''],
+           array[''fun''], ''2019-10-15'')');
+
+reset role;
+select pg_temp.t_raise(
+  'Un centre d''intérêt hors liste est refusé',
+  'insert into public.profile_onboarding (id, interests)
+   values (''33333333-3333-3333-3333-333333333333'', array[''cryptomonnaie''])',
+  'profile_onboarding_interests_check');
+select pg_temp.t_raise(
+  'Une date de relation dans le futur est refusée',
+  'update public.profile_onboarding set relationship_started_on = current_date + 30
+     where id = ''11111111-1111-1111-1111-111111111111''',
+  'profile_onboarding_dates_check');
+set local role authenticated;
+
+-- ----------------------------------------- le compteur « ensemble depuis »
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select pg_temp.t_allow('On peut fixer la date de début du couple',
+  'select public.set_link_started_on(''2019-09-01''::date)');
+select pg_temp.t_ok(
+  'Le compteur est calculé côté serveur, dans le fuseau du lien',
+  (select public.days_together(v) > 2000 from _fx where k = 'L1'));
+select pg_temp.t_raise(
+  'Une date de début dans le futur est refusée',
+  'select public.set_link_started_on((current_date + 1)::date)', 'invalid_date');
+select pg_temp.t_ok(
+  'my_link() expose le compteur et la date déclarée par l''autre',
+  (select count(*) = 1 from public.my_link()
+    where days_together is not null and started_on = '2019-09-01'
+      and partner_started_on = '2019-10-15'));
+
+select pg_temp.as_user('33333333-3333-3333-3333-333333333333');
+select pg_temp.t_raise('Sans lien, on ne fixe aucune date de début',
+  'select public.set_link_started_on(''2020-01-01''::date)', 'no_link');
+
 -- ============================================ LA LANGUE DU COUPLE
 
 select pg_temp.as_user('11111111-1111-1111-1111-111111111111');

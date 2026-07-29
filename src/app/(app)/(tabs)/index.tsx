@@ -113,6 +113,14 @@ export default function TodayScreen() {
           <ThemedText type="smallBold" themeColor="textSecondary">
             {t.today.greeting(profile?.displayName ?? '')}
           </ThemedText>
+          {/* Le compteur vient du serveur (`days_together`), calculé dans le
+              fuseau du lien : le recalculer ici avec `new Date()` rouvrirait
+              l'horloge d'appareil que l'étape 2 a fermée. */}
+          {link?.daysTogether !== null && link?.daysTogether !== undefined ? (
+            <ThemedText type="smallBold" style={{ color: theme.accent }}>
+              {t.today.together(link.daysTogether)}
+            </ThemedText>
+          ) : null}
           <ThemedText type="small" themeColor="textSecondary">
             {streak > 0 ? `🔥 ${t.today.streak(streak)}` : t.today.noStreak}
           </ThemedText>

@@ -34,6 +34,36 @@ export type Link = {
    * réglage du téléphone de chacun.
    */
   locale: Locale;
+  /** Date de début de la relation, null tant que personne ne l'a dite. */
+  startedOn: string | null;
+  /** Jours ensemble, calculé SERVEUR : `new Date()` ici rouvrirait l'horloge d'appareil. */
+  daysTogether: number | null;
+  /** Ce que l'autre a déclaré à l'onboarding, pour trancher quand les deux dates diffèrent. */
+  partnerStartedOn: string | null;
+};
+
+/** Liste fermée, contrainte aussi en base. */
+export const INTERESTS = [
+  'cuisine', 'voyage', 'sport', 'musique', 'cinema', 'lecture',
+  'jeux', 'nature', 'art', 'tech', 'bienetre', 'sorties',
+] as const;
+export type Interest = (typeof INTERESTS)[number];
+
+export const GOALS = ['complicite', 'decouverte', 'fun'] as const;
+export type Goal = (typeof GOALS)[number];
+
+/**
+ * Ce que chacun déclare pour soi. Ville et date de naissance exacte vivent
+ * dans une table que le partenaire ne lit pas — la RLS filtre par ligne, pas
+ * par colonne, donc la séparation est physique et non déclarative.
+ */
+export type Onboarding = {
+  birthDate: string | null;
+  city: string | null;
+  interests: Interest[];
+  goals: Goal[];
+  relationshipStartedOn: string | null;
+  completed: boolean;
 };
 
 /**

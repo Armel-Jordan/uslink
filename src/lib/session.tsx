@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 
 import { data } from '@/lib/data';
 import type { Locale } from '@/lib/strings';
-import type { Link, LinkMode, Profile, Session } from '@/lib/types';
+import type { Link, LinkMode, Onboarding, Profile, Session } from '@/lib/types';
 
 type SessionContextValue = {
   /** True until the stored session (and profile/link) has been resolved. */
@@ -11,6 +11,7 @@ type SessionContextValue = {
   session: Session | null;
   profile: Profile | null;
   link: Link | null;
+  onboarding: Onboarding | null;
   refresh: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<{ needsConfirmation: boolean }>;
@@ -22,6 +23,8 @@ type SessionContextValue = {
   setLocale: (locale: Locale) => Promise<void>;
   leaveLink: () => Promise<void>;
   updateProfile: (patch: Partial<Pick<Profile, 'displayName' | 'avatarEmoji'>>) => Promise<void>;
+  saveOnboarding: (patch: Partial<Onboarding>) => Promise<void>;
+  setStartedOn: (date: string) => Promise<void>;
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -31,20 +34,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [link, setLink] = useState<Link | null>(null);
+  const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
 
   const loadForSession = useCallback(async (next: Session | null) => {
     setSession(next);
     if (!next) {
       setProfile(null);
       setLink(null);
+      setOnboarding(null);
       return;
     }
-    const [nextProfile, nextLink] = await Promise.all([
+    const [nextProfile, nextLink, nextOnboarding] = await Promise.all([
       data.getProfile().catch(() => null),
       data.getLink().catch(() => null),
+      data.getOnboarding().catch(() => null),
     ]);
     setProfile(nextProfile);
     setLink(nextLink);
+    setOnboarding(nextOnboarding);
   }, []);
 
   useEffect(() => {
@@ -79,6 +86,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       session,
       profile,
       link,
+      onboarding,
       refresh,
       signIn: async (email, password) => {
         await data.signIn(email, password);
@@ -94,6 +102,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setSession(null);
         setProfile(null);
         setLink(null);
+        setOnboarding(null);
       },
       createLink: async (mode) => {
         const created = await data.createLink(mode);
@@ -126,8 +135,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const updated = await data.updateProfile(patch);
         setProfile(updated);
       },
+      saveOnboarding: async (patch) => {
+        setOnboarding(await data.saveOnboarding(patch));
+        // La date de relation vit aussi sur le lien : le compteur doit suivre.
+        setLink(await data.getLink().catch(() => null));
+      },
+      setStartedOn: async (date) => {
+        setLink(await data.setStartedOn(date));
+      },
     }),
-    [loading, session, profile, link, refresh],
+    [loading, session, profile, link, onboarding, refresh],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

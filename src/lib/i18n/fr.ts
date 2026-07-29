@@ -56,6 +56,7 @@ export const fr = {
     back: 'Retour',
     noCode: "Ce lien n'a plus de code d'invitation actif.",
     regenerate: 'Générer un nouveau code',
+    startedOnAsk: "Vous avez indiqué deux dates différentes. Laquelle garde-t-on ?",
   },
 
   today: {
@@ -72,6 +73,7 @@ export const fr = {
     frozen: (name: string) => `${name} a répondu : votre réponse est figée. C'est ce qui la rend sincère.`,
     you: 'Vous',
     streak: makePlural('fr', { one: '{n} jour de suite', other: '{n} jours de suite' }),
+    together: makePlural("fr", {"one":"Ensemble depuis {n} jour","other":"Ensemble depuis {n} jours"}),
     kindDebate: 'Débat',
     kindQuestion: 'Question',
     kindChallenge: 'Défi',
@@ -109,6 +111,7 @@ export const fr = {
     save: 'Enregistrer',
     saved: 'Enregistré',
     link: 'Votre lien',
+    startedOn: "Date de début",
     noLink: "Vous n'avez pas de lien actif.",
     linkedWith: (name: string) => `Relié(e) à ${name}`,
     timeZone: 'Fuseau du lien',
@@ -132,6 +135,74 @@ export const fr = {
     demoBanner: 'Mode démo — les données restent sur cet appareil.',
     cancel: 'Annuler',
   },
+
+  onboarding: {
+
+    title: "Faisons connaissance",
+
+    subtitle: "Quelques réponses pour que vos contenus vous ressemblent. Rien n’est public.",
+
+    firstName: "Votre prénom",
+
+    birthDate: "Votre date de naissance",
+
+    city: "Votre ville",
+
+    cityHint: "Reste sur votre appareil et sur votre compte — votre partenaire ne la voit pas.",
+
+    startedOn: "Depuis quand êtes-vous ensemble ?",
+
+    startedOnHint: "Une date approximative suffit.",
+
+    interests: "Ce que vous aimez",
+
+    interestsHint: "Choisissez-en quelques-uns. Ils orientent les questions, jamais les réponses.",
+
+    goals: "Ce que vous voulez travailler",
+
+    goalCloseness: "Complicité",
+
+    goalDiscovery: "Découverte",
+
+    goalFun: "Fun",
+
+    continue: "Continuer",
+
+    later: "Plus tard",
+
+  },
+
+
+  /** Liste fermée, contrainte aussi en base : rien d'autre n'est acceptable. */
+
+  interests: {
+
+    cuisine: "Cuisine",
+
+    voyage: "Voyage",
+
+    sport: "Sport",
+
+    musique: "Musique",
+
+    cinema: "Cinéma & séries",
+
+    lecture: "Lecture",
+
+    jeux: "Jeux",
+
+    nature: "Nature",
+
+    art: "Art",
+
+    tech: "Technologie",
+
+    bienetre: "Bien-être",
+
+    sorties: "Sorties",
+
+  },
+
 
   common: {
     loading: 'Chargement…',

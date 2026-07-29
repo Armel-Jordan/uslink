@@ -7,6 +7,9 @@ import type {
   ItemKind,
   Link,
   LinkMode,
+  Goal,
+  Interest,
+  Onboarding,
   Profile,
   Session,
   TodayState,
@@ -22,6 +25,7 @@ export type DataErrorCode =
   | 'invalid_time_zone'
   | 'time_zone_cooldown'
   | 'invalid_locale'
+  | 'invalid_date'
   | 'auth'
   | 'unknown';
 
@@ -48,6 +52,11 @@ export type DataAdapter = {
   signIn(email: string, password: string): Promise<void>;
   signUp(email: string, password: string, displayName: string): Promise<{ needsConfirmation: boolean }>;
   signOut(): Promise<void>;
+
+  getOnboarding(): Promise<Onboarding>;
+  saveOnboarding(patch: Partial<Onboarding>): Promise<Onboarding>;
+  /** Fixe la date de début du couple. Les deux ont pu en déclarer deux différentes. */
+  setStartedOn(date: string): Promise<Link>;
 
   getProfile(): Promise<Profile>;
   updateProfile(patch: Partial<Pick<Profile, 'displayName' | 'avatarEmoji'>>): Promise<Profile>;

@@ -13,7 +13,40 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users on delete cascade,
   display_name text not null default 'Moi',
   avatar_emoji text not null default '☀️',
+  -- Partagé volontairement : sert au rappel d'anniversaire côté partenaire.
+  -- Tout le reste de l'onboarding vit dans profile_onboarding, invisible à
+  -- l'autre — la RLS filtre par ligne, pas par colonne.
+  birth_date date constraint profiles_birth_date_check check (birth_date is null or birth_date < current_date),
   created_at timestamptz not null default now()
+);
+
+/**
+ * Ce que personne d'autre ne lit, pas même le partenaire. Table séparée parce
+ * que la RLS Postgres filtre par LIGNE : une colonne « ville » sur profiles
+ * serait exposée par profiles_select, qu'on le veuille ou non.
+ */
+create table if not exists public.profile_onboarding (
+  id uuid primary key references auth.users on delete cascade,
+  birth_date date,
+  city text check (char_length(city) <= 60),
+  -- Dérivée de la ville côté serveur : c'est elle qui part vers le modèle,
+  -- jamais la ville.
+  region text check (char_length(region) <= 60),
+  interests text[] not null default '{}'
+    constraint profile_onboarding_interests_check check (
+      coalesce(array_length(interests, 1), 0) <= 12
+      and interests <@ array['cuisine','voyage','sport','musique','cinema','lecture',
+                             'jeux','nature','art','tech','bienetre','sorties']
+    ),
+  goals text[] not null default '{}'
+    constraint profile_onboarding_goals_check check (goals <@ array['complicite','decouverte','fun']),
+  relationship_started_on date,
+  completed_at timestamptz,
+  updated_at timestamptz not null default now(),
+  constraint profile_onboarding_dates_check check (
+    (birth_date is null or birth_date < current_date)
+    and (relationship_started_on is null or relationship_started_on <= current_date)
+  )
 );
 
 create table if not exists public.links (
@@ -34,7 +67,13 @@ create table if not exists public.links (
   -- Deux personnes partagent un contenu, donc une langue. Sans elle, l'IA
   -- écrirait la question du jour en français sous une interface en japonais.
   locale text not null default 'fr'
-    constraint links_locale_check check (locale in ('fr', 'es', 'pt', 'it', 'ar', 'zh', 'ja'))
+    constraint links_locale_check check (locale in ('fr', 'es', 'pt', 'it', 'ar', 'zh', 'ja')),
+  -- Le compteur « Ensemble depuis X jours ». Null tant que personne ne l'a dit.
+  started_on date constraint links_started_on_check check (started_on is null or started_on <= current_date),
+  -- Union de ce que les deux ont déclaré : si l'un veut du fun et l'autre de la
+  -- profondeur, la semaine contient les deux plutôt que rien.
+  interests text[] not null default '{}',
+  objectives text[] not null default '{}'
 );
 
 create table if not exists public.link_members (
@@ -196,6 +235,17 @@ $$;
 create or replace function public.link_today(p_link uuid)
 returns date language sql stable security definer set search_path = public as $$
   select ((now() at time zone l.time_zone) - make_interval(hours => l.day_start_hour))::date
+  from public.links l where l.id = p_link;
+$$;
+
+/**
+ * Jours ensemble. Calculé serveur : `new Date()` côté client réintroduirait
+ * l'horloge d'appareil que le jour serveur a supprimée.
+ */
+create or replace function public.days_together(p_link uuid)
+returns integer language sql stable security definer set search_path = public as $$
+  select case when l.started_on is null then null
+              else greatest(0, (public.link_today(l.id) - l.started_on))::int end
   from public.links l where l.id = p_link;
 $$;
 
@@ -420,9 +470,6 @@ begin
     raise exception 'own_code';
   end if;
 
-  -- Verrou : sans lui, deux sessions rejouant le même code passent toutes les
-  -- deux le comptage et font entrer un troisième membre. Si la ligne a disparu
-  -- entre-temps, `for update` ne verrouille rien — d'où le test.
   perform 1 from public.links where id = v_link for update;
   if not found then
     raise exception 'invalid_code';
@@ -434,10 +481,30 @@ begin
   end if;
 
   insert into public.link_members (link_id, user_id) values (v_link, v_uid);
-
-  -- Le code est consommé : un lien complet n'est plus rejoignable, même si la
-  -- capture d'écran circule encore.
   delete from public.invites where link_id = v_link;
+
+  -- Fusion des déclarations des deux membres.
+  update public.links l
+  set interests = (
+        select coalesce(array_agg(distinct x), '{}')
+        from public.profile_onboarding po
+        join public.link_members m on m.user_id = po.id and m.link_id = l.id,
+             unnest(po.interests) x
+      ),
+      objectives = (
+        select coalesce(array_agg(distinct x), '{}')
+        from public.profile_onboarding po
+        join public.link_members m on m.user_id = po.id and m.link_id = l.id,
+             unnest(po.goals) x
+      ),
+      started_on = coalesce(
+        l.started_on,
+        (select po.relationship_started_on from public.profile_onboarding po
+          where po.id = v_creator),
+        (select po.relationship_started_on from public.profile_onboarding po
+          where po.id = v_uid)
+      )
+  where l.id = v_link;
 
   return v_link;
 end $$;
@@ -555,6 +622,25 @@ exception when check_violation then
   raise exception 'invalid_locale';
 end $$;
 
+/**
+ * Choisir la date de début du couple. Les deux membres ont pu saisir des dates
+ * différentes à l'onboarding : le compteur est affiché aux DEUX, sa provenance
+ * ne peut pas être un « dernier écrivain gagne » silencieux. L'écran d'appairage
+ * montre les deux et demande de trancher.
+ */
+create or replace function public.set_link_started_on(p_date date)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_link uuid := public.my_link_id();
+begin
+  if v_link is null then
+    raise exception 'no_link';
+  end if;
+  if p_date > current_date then
+    raise exception 'invalid_date';
+  end if;
+  update public.links set started_on = p_date where id = v_link;
+end $$;
+
 -- Porte le jour, le fuseau et la langue : le client n'a plus aucune raison de
 -- calculer une date, et n'en a plus le droit.
 create or replace function public.my_link()
@@ -567,6 +653,9 @@ returns table (
   day_start_hour smallint,
   today date,
   locale text,
+  started_on date,
+  days_together integer,
+  partner_started_on date,
   partner_id uuid,
   partner_name text,
   partner_emoji text
@@ -581,6 +670,11 @@ language sql stable security definer set search_path = public as $$
     l.day_start_hour,
     public.link_today(l.id),
     l.locale,
+    l.started_on,
+    public.days_together(l.id),
+    -- Ce que l'AUTRE a déclaré, pour que l'écran puisse proposer de trancher
+    -- quand les deux dates diffèrent. Rien d'autre de sa table personnelle.
+    (select po.relationship_started_on from public.profile_onboarding po where po.id = p.id),
     p.id,
     p.display_name,
     p.avatar_emoji
@@ -645,6 +739,14 @@ alter table public.invites enable row level security;
 alter table public.daily_prompts enable row level security;
 alter table public.answers enable row level security;
 alter table public.reactions enable row level security;
+
+alter table public.profile_onboarding enable row level security;
+
+-- Personne d'autre. Pas même le partenaire : c'est tout l'intérêt de la table
+-- séparée.
+drop policy if exists profile_onboarding_own on public.profile_onboarding;
+create policy profile_onboarding_own on public.profile_onboarding for all to authenticated
+  using (id = auth.uid()) with check (id = auth.uid());
 
 drop policy if exists profiles_select on public.profiles;
 create policy profiles_select on public.profiles for select to authenticated
@@ -751,6 +853,8 @@ grant execute on function public.set_link_time_zone(text) to authenticated;
 grant execute on function public.set_link_locale(text) to authenticated;
 grant execute on function public.my_link() to authenticated;
 grant execute on function public.link_today(uuid) to authenticated;
+grant execute on function public.days_together(uuid) to authenticated;
+grant execute on function public.set_link_started_on(date) to authenticated;
 grant execute on function public.partner_answered(uuid) to authenticated;
 grant execute on function public.prompt_is_open(uuid) to authenticated;
 grant execute on function public.link_streak(uuid) to authenticated;
