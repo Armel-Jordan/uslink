@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'design/couleurs.dart';
+import 'design/lisiere.dart';
 import 'design/typographie.dart';
+import 'ecrans/onboarding.dart';
+import 'ecrans/profil.dart';
+import 'ecrans/reglages.dart';
+import 'i18n/fr.dart';
 
 void main() {
-  // L'app est nocturne : les icônes système doivent être claires, toujours.
+  // L'app est nocturne : les icônes système sont claires, toujours.
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.light);
   runApp(const UsLink());
 }
@@ -16,9 +21,9 @@ class UsLink extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'UsLink',
+      title: Fr.appName,
       debugShowCheckedModeBanner: false,
-      // Un seul thème. Pas de themeMode, pas de thème clair : voir couleurs.dart.
+      // Un seul thème. Pas de themeMode, pas de darkTheme : voir couleurs.dart.
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: Couleurs.nuit,
@@ -30,35 +35,56 @@ class UsLink extends StatelessWidget {
           onSurface: Couleurs.texte,
         ),
       ),
-      home: const _Provisoire(),
+      home: const Racine(),
     );
   }
 }
 
-/// Écran d'attente, le temps que les vrais écrans arrivent. Il ne sert qu'à
-/// vérifier que les tokens sont bien câblés.
-class _Provisoire extends StatelessWidget {
-  const _Provisoire();
+class Racine extends StatefulWidget {
+  const Racine({super.key});
+
+  @override
+  State<Racine> createState() => _RacineState();
+}
+
+class _RacineState extends State<Racine> {
+  bool _presente = false;
+  Lieu _lieu = Lieu.jour;
+  double _luminosite = 0;
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: Mesures.marge),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('braise', style: Typo.rubrique),
-              SizedBox(height: 20),
-              Text(
-                'Toute l\u2019interface est \u00e9teinte pour qu\u2019une seule chose puisse s\u2019allumer.',
-                style: Typo.enonce,
-              ),
-            ],
+    if (!_presente) {
+      return Onboarding(onFini: () => setState(() => _presente = true));
+    }
+    return Lieu4(
+      lieu: _lieu,
+      luminosite: _luminosite,
+      onAller: (l) => setState(() => _lieu = l),
+      enfant: switch (_lieu) {
+        Lieu.jour => const _Provisoire('le jour'),
+        Lieu.souvenirs => const _Provisoire('les souvenirs'),
+        Lieu.ensemble => const Profil(),
+        Lieu.profil => Reglages(
+            luminosite: _luminosite,
+            onLuminosite: (v) => setState(() => _luminosite = v),
           ),
-        ),
+      },
+    );
+  }
+}
+
+/// Les deux lieux qui restent à écrire.
+class _Provisoire extends StatelessWidget {
+  const _Provisoire(this.nom);
+  final String nom;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Mesures.marge),
+        child: Text(nom, style: Typo.enonce),
       ),
     );
   }
