@@ -34,16 +34,20 @@ abstract final class Couleurs {
   /// pas de bord pendant sa transition.
   static const nuitVeille = Color(0xFF101218);
 
-  /// Texte courant. 16,19:1.
+  /// Texte courant. **12,98:1**, mesuré.
   ///
-  /// La critique recommande de descendre à ~13:1 ([texteDoux]) pour réduire
-  /// le bavement : sur fond noir, le contraste maximal produit le halation
-  /// maximal. Contre-intuitif, et c'est la seule vraie atténuation. Décision
-  /// en attente — voir docs/maquettes/braise.html.
-  static const texte = Color(0xFFEDE6DE);
-
-  /// Variante moins éblouissante du texte courant. ~13:1, toujours AA.
-  static const texteDoux = Color(0xFFD6CFC7);
+  /// Volontairement PAS le contraste maximal. Sur fond noir, le contraste
+  /// maximal produit le halation maximal : à 16:1 le texte bave, surtout pour
+  /// les astigmates, et cette app se lit le soir, fatigué, souvent sans
+  /// lunettes.
+  ///
+  /// On abaisse le sol, pas le plafond : [voixAutre] reste à 18,10:1, donc
+  /// l'écart lumineux qui porte toute la métaphore est intact. On ne perd que
+  /// l'éblouissement.
+  ///
+  /// Ne pas « améliorer » cette valeur vers #EDE6DE (16,19:1) : ce serait
+  /// revenir au problème en croyant le corriger.
+  static const texte = Color(0xFFD6CFC7);
 
   /// Compteur, dates, pôles de l'échelle, invites. 5,16:1.
   static const texteEteint = Color(0xFF7C8191);
