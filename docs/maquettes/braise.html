@@ -1,0 +1,478 @@
+<title>Braise — direction visuelle UsLink</title>
+
+<style>
+  /* ------------------------------------------------------------------ page
+     Le cadre est une paillasse, pas une vitrine : gris neutre, étiquettes en
+     mono, aucune couleur à lui. La seule couleur de cette page est la braise
+     du produit, et elle n'apparaît qu'à l'intérieur des maquettes et dans les
+     pastilles de palette. */
+  :root {
+    --sol: #17181c;
+    --sol-creux: #101115;
+    --sol-relief: #212329;
+    --encre: #c9c7c2;
+    --encre-basse: #8a8992;
+    --encre-faible: #5d5c65;
+    --filet: #2c2e35;
+    --braise: #ff9256;
+    --ok: #6fbf8f;
+    --alerte: #e8a33d;
+
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sys: system-ui, -apple-system, "Segoe UI", sans-serif;
+
+    /* Valeurs du produit. Elles ne suivent JAMAIS le thème du lecteur :
+       l'app est nocturne par nature, la montrer en clair la trahirait. */
+    --nuit: #07080b;
+    --nuit-creuse: #030407;
+    --texte: #ede6de;
+    --texte-eteint: #7c8191;
+    --voix-moi: #9fa7b8;
+    --voix-autre: #fff1e6;
+    --trait: #5a6273;
+    --station-off: #535d72;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --sol: #f2f1ee;
+      --sol-creux: #e6e5e1;
+      --sol-relief: #fbfaf8;
+      --encre: #26262a;
+      --encre-basse: #5d5c65;
+      --encre-faible: #8a8992;
+      --filet: #d8d6d1;
+    }
+  }
+  :root[data-theme="light"] {
+    --sol: #f2f1ee;
+    --sol-creux: #e6e5e1;
+    --sol-relief: #fbfaf8;
+    --encre: #26262a;
+    --encre-basse: #5d5c65;
+    --encre-faible: #8a8992;
+    --filet: #d8d6d1;
+  }
+  :root[data-theme="dark"] {
+    --sol: #17181c;
+    --sol-creux: #101115;
+    --sol-relief: #212329;
+    --encre: #c9c7c2;
+    --encre-basse: #8a8992;
+    --encre-faible: #5d5c65;
+    --filet: #2c2e35;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--sol);
+    color: var(--encre);
+    font-family: var(--sys);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  /* ------------------------------------------------------------- en-tête */
+  .tete { display: flex; flex-direction: column; gap: 16px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--encre-faible);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(34px, 6vw, 52px);
+    line-height: 1.05;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    text-wrap: balance;
+  }
+
+  .these {
+    margin: 0;
+    max-width: 62ch;
+    font-size: clamp(17px, 2.4vw, 20px);
+    line-height: 1.5;
+    color: var(--encre-basse);
+    text-wrap: pretty;
+  }
+  .these em { color: var(--braise); font-style: normal; }
+
+  h2 {
+    margin: 0 0 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--encre-faible);
+  }
+
+  section { display: flex; flex-direction: column; gap: 20px; }
+
+  .note { margin: 0; max-width: 68ch; color: var(--encre-basse); font-size: 15px; text-wrap: pretty; }
+  .note strong { color: var(--encre); font-weight: 600; }
+
+  /* -------------------------------------------------------- les maquettes */
+  .banc {
+    display: flex;
+    gap: 28px;
+    overflow-x: auto;
+    padding-bottom: 12px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+  }
+  .specimen { flex: 0 0 auto; scroll-snap-align: start; display: flex; flex-direction: column; gap: 12px; }
+  .specimen figcaption {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--encre-faible);
+  }
+
+  /* L'écran réel : 390 × 844 points. Aucun redimensionnement — c'est la
+     taille à laquelle ça se juge. */
+  .tel {
+    width: 390px;
+    height: 844px;
+    background: var(--nuit);
+    border: 1px solid var(--filet);
+    position: relative;
+    overflow: hidden;
+    font-family: var(--sys);
+    color: var(--texte);
+  }
+  .tel.creuse { background: var(--nuit-creuse); }
+
+  .safe-haut { height: 59px; }
+
+  /* bandeau de veille */
+  .veille { text-align: center; padding-top: 0; }
+  .compteur {
+    font-size: 15px; font-weight: 500; letter-spacing: .04em;
+    font-variant-numeric: tabular-nums;
+  }
+  .compteur span { font-size: 13px; font-weight: 400; color: var(--texte-eteint); }
+  .serie { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+  /* 6 pt et non 4 : à 4 pt l'anneau vide et le disque plein sont
+     indiscernables, et c'est le seul signal de complétude. */
+  .nuit-faite, .nuit-vide { width: 6px; height: 6px; border-radius: 50%; }
+  .nuit-faite { background: var(--braise); }
+  .nuit-vide { border: 1px solid var(--trait); }
+
+  .marque {
+    position: absolute; top: 55px; right: 16px;
+    width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
+  }
+  .marque i { width: 11px; height: 11px; border: 1.5px solid var(--texte-eteint); border-radius: 50%; display: block; }
+  .marque i + i { margin-left: -4px; }
+
+  /* stations */
+  .stations { position: absolute; right: 6px; top: 425px; display: flex; flex-direction: column; gap: 8px; }
+  .stations b { width: 2px; height: 24px; background: var(--station-off); display: block; }
+  .stations b.on { background: var(--braise); }
+
+  .corps { padding: 0 28px; }
+
+  .rubrique {
+    font-size: 12px; font-weight: 500; letter-spacing: .12em;
+    color: var(--braise); text-transform: lowercase;
+  }
+
+  /* La voix de l'app : serif. Newsreader dans le produit ; ici une serif
+     système, la substitution est signalée plus bas. */
+  .affirmation {
+    font-family: Newsreader, "Iowan Old Style", Georgia, "Times New Roman", serif;
+    font-size: 30px; line-height: 38px; font-weight: 400;
+    letter-spacing: .2px; margin: 0; text-wrap: pretty;
+  }
+
+  .poles { display: flex; justify-content: space-between; gap: 24px; font-size: 13px; line-height: 16px; color: var(--texte-eteint); font-weight: 500; }
+  .poles span:last-child { text-align: right; }
+
+  /* l'échelle : un filet, cinq nœuds, aucun chiffre */
+  .echelle { position: relative; height: 32px; }
+  .rail { position: absolute; top: 15px; left: 0; right: 0; height: 1px; background: var(--trait); }
+  .noeud { position: absolute; top: 15px; width: 7px; height: 7px; border-radius: 50%; background: var(--trait); transform: translate(-50%, -50%); }
+  .noeud.moi { width: 14px; height: 14px; background: var(--voix-moi); }
+  .noeud.moi.vif { background: var(--braise); box-shadow: 0 0 0 14px rgb(255 146 86 / .22); }
+  .noeud.autre { width: 14px; height: 14px; background: var(--voix-autre); }
+  .lien { position: absolute; top: 15px; height: 2px; background: rgb(255 146 86 / .6); transform: translateY(-50%); }
+
+  .parceque { font-size: 13px; color: var(--texte-eteint); }
+
+  .champ { border-bottom: 1px solid var(--trait); padding-bottom: 8px; min-height: 78px; font-size: 17px; line-height: 26px; }
+  .champ.actif { border-bottom: 2px solid var(--braise); }
+  .caret { display: inline-block; width: 1.5px; height: 20px; background: var(--braise); vertical-align: -3px; }
+
+  /* l'action : une barre pleine, aucun rayon */
+  .action {
+    position: absolute; left: 28px; right: 28px; bottom: 34px; height: 54px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 500;
+  }
+  .action.prete { background: var(--braise); color: #0b0a08; }
+  .action.dort { border: 1px solid var(--trait); color: var(--texte-eteint); }
+
+  /* la révélation */
+  .halo {
+    position: absolute; left: 50%; transform: translate(-50%, -50%);
+    width: 520px; height: 520px; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, rgb(255 146 86 / .14) 0%, rgb(255 146 86 / .05) 45%, transparent 70%);
+  }
+  .voix { font-size: 18px; line-height: 28px; margin: 0; }
+  .voix.moi { color: var(--voix-moi); }
+  .voix.autre { color: var(--voix-autre); }
+  .signature { font-size: 12px; font-weight: 500; letter-spacing: .12em; color: var(--braise); }
+  .etiquette { font-size: 12px; font-weight: 500; letter-spacing: .12em; color: var(--texte-eteint); }
+
+  .pile { display: flex; flex-direction: column; }
+
+  /* ---------------------------------------------------------- la palette */
+  .palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 2px; background: var(--filet); border: 1px solid var(--filet); }
+  .ton { background: var(--sol-relief); padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start; }
+  .pastille { width: 34px; height: 34px; flex: 0 0 auto; border: 1px solid var(--filet); }
+  .ton dl { margin: 0; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .ton dt { font-size: 13px; font-weight: 600; }
+  .ton dd { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--encre-faible); letter-spacing: .02em; }
+  .ratio { color: var(--ok); }
+
+  /* --------------------------------------------------------- corrections */
+  .corrections { display: flex; flex-direction: column; gap: 2px; background: var(--filet); border: 1px solid var(--filet); }
+  .fix { background: var(--sol-relief); padding: 16px 18px; display: grid; grid-template-columns: 92px 1fr; gap: 16px; align-items: baseline; }
+  .fix b { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--alerte); font-weight: 500; }
+  .fix p { margin: 0; font-size: 14px; color: var(--encre-basse); text-wrap: pretty; }
+  .fix p strong { color: var(--encre); font-weight: 600; }
+  .fix code { font-family: var(--mono); font-size: .92em; color: var(--encre); }
+
+  @media (max-width: 720px) {
+    .page { padding: 32px 16px 64px; gap: 40px; }
+    .fix { grid-template-columns: 1fr; gap: 6px; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .specimen { animation: monte .5s cubic-bezier(.16,1,.3,1) both; }
+    .specimen:nth-child(2) { animation-delay: .08s; }
+    @keyframes monte { from { opacity: 0; transform: translateY(10px); } }
+  }
+</style>
+
+<div class="page">
+
+  <header class="tete">
+    <p class="eyebrow">UsLink · direction visuelle retenue</p>
+    <h1>Braise</h1>
+    <p class="these">
+      Toute l'interface est éteinte pour qu'une seule chose puisse s'allumer :
+      <em>ce que l'autre a écrit.</em>
+    </p>
+    <p class="note">
+      Les deux écrans ci-dessous sont à la taille réelle — 390 × 844 points, sans réduction.
+      C'est à cette taille que ça se juge. Les couleurs du produit ne suivent pas le thème de
+      cette page : l'app est nocturne par nature, la montrer en clair la trahirait.
+    </p>
+  </header>
+
+  <!-- ================================================== les deux maquettes -->
+  <section>
+    <h2>L'écran du jour — avant, puis après</h2>
+    <div class="banc">
+
+      <!-- ------------------------------------------------ avant de répondre -->
+      <figure class="specimen" style="margin:0">
+        <div class="tel">
+          <div class="safe-haut"></div>
+          <div class="veille">
+            <div class="compteur">843 <span>jours ensemble</span></div>
+            <div class="serie">
+              <i class="nuit-faite"></i><i class="nuit-faite"></i><i class="nuit-faite"></i>
+              <i class="nuit-vide"></i><i class="nuit-faite"></i><i class="nuit-faite"></i>
+              <i class="nuit-vide"></i>
+            </div>
+          </div>
+          <div class="marque" aria-hidden="true"><i></i><i></i></div>
+          <div class="stations" aria-hidden="true"><b class="on"></b><b></b><b></b></div>
+
+          <div class="corps" style="padding-top:96px">
+            <p class="rubrique" style="margin:0">débat</p>
+            <p class="affirmation" style="margin-top:20px">
+              Les meilleures vacances se décident la veille, pas six mois à l'avance.
+            </p>
+
+            <div style="height:40px"></div>
+            <div class="poles"><span>Tout prévoir</span><span>Partir au feeling</span></div>
+
+            <div class="echelle" style="margin-top:10px">
+              <div class="rail"></div>
+              <span class="noeud" style="left:0"></span>
+              <span class="noeud" style="left:25%"></span>
+              <span class="noeud" style="left:50%"></span>
+              <span class="noeud moi vif" style="left:75%"></span>
+              <span class="noeud" style="left:100%"></span>
+            </div>
+
+            <p class="parceque" style="margin:24px 0 8px">parce que</p>
+            <div class="champ actif">
+              <span style="color:var(--texte)">On a passé les meilleures soirées à ne rien avoir prévu</span><span class="caret"></span>
+            </div>
+          </div>
+
+          <div class="action prete">Répondre</div>
+        </div>
+        <figcaption>01 — la position est posée, le texte s'écrit</figcaption>
+      </figure>
+
+      <!-- ------------------------------------------------ après révélation -->
+      <figure class="specimen" style="margin:0">
+        <div class="tel">
+          <div class="safe-haut"></div>
+          <div class="veille">
+            <div class="compteur">843 <span>jours ensemble</span></div>
+            <div class="serie">
+              <i class="nuit-faite"></i><i class="nuit-faite"></i><i class="nuit-faite"></i>
+              <i class="nuit-vide"></i><i class="nuit-faite"></i><i class="nuit-faite"></i>
+              <i class="nuit-faite"></i>
+            </div>
+          </div>
+          <div class="marque" aria-hidden="true"><i></i><i></i></div>
+          <div class="stations" aria-hidden="true"><b class="on"></b><b></b><b></b></div>
+
+          <div class="halo" style="top:560px"></div>
+
+          <div class="corps" style="padding-top:76px; position:relative">
+            <p class="rubrique" style="margin:0">débat</p>
+            <p class="affirmation" style="margin-top:18px">
+              Les meilleures vacances se décident la veille, pas six mois à l'avance.
+            </p>
+
+            <div style="height:32px"></div>
+            <div class="poles"><span>Tout prévoir</span><span>Partir au feeling</span></div>
+
+            <div class="echelle" style="margin-top:10px">
+              <div class="rail"></div>
+              <span class="noeud" style="left:0"></span>
+              <span class="noeud autre" style="left:25%"></span>
+              <span class="lien" style="left:25%; width:50%"></span>
+              <span class="noeud" style="left:50%"></span>
+              <span class="noeud moi" style="left:75%"></span>
+              <span class="noeud" style="left:100%"></span>
+            </div>
+
+            <div class="pile" style="gap:8px; margin-top:34px">
+              <span class="etiquette">vous</span>
+              <p class="voix moi">On a passé les meilleures soirées à ne rien avoir prévu.</p>
+            </div>
+
+            <div class="pile" style="gap:8px; margin-top:30px">
+              <span class="signature">camille</span>
+              <p class="voix autre">
+                Moi j'ai besoin de savoir où on dort. Ce n'est pas du contrôle, c'est que
+                l'inconnu me fatigue plus qu'il ne m'amuse.
+              </p>
+            </div>
+          </div>
+        </div>
+        <figcaption>02 — sa réponse est l'objet le plus clair de l'écran</figcaption>
+      </figure>
+
+    </div>
+
+    <p class="note">
+      <strong>Ce que la maquette dit sans le dire.</strong> Ma réponse s'est <em style="font-style:normal;color:var(--voix-moi)">refroidie</em>
+      au moment de l'envoi — je la connais déjà. La sienne arrive en blanc chaud, la seule chose
+      lumineuse de l'écran, avec son prénom en braise. Sur l'échelle, son nœud s'allume et un
+      segment se trace entre les deux : on lit l'écart avant de lire les mots. Aucun chiffre —
+      on ne se note pas, on se place.
+    </p>
+  </section>
+
+  <!-- ============================================================ palette -->
+  <section>
+    <h2>Palette — ratios recalculés, pas ceux annoncés</h2>
+    <div class="palette">
+      <div class="ton"><span class="pastille" style="background:#07080b"></span>
+        <dl><dt>la nuit</dt><dd>#07080B</dd><dd>fond unique · noir bleuté, jamais #000</dd></dl></div>
+      <div class="ton"><span class="pastille" style="background:#ede6de"></span>
+        <dl><dt>texte</dt><dd>#EDE6DE</dd><dd class="ratio">16,19:1</dd></dl></div>
+      <div class="ton"><span class="pastille" style="background:#fff1e6"></span>
+        <dl><dt>voix de l'autre</dt><dd>#FFF1E6</dd><dd class="ratio">18,10:1 · le point le plus clair</dd></dl></div>
+      <div class="ton"><span class="pastille" style="background:#9fa7b8"></span>
+        <dl><dt>ma voix</dt><dd>#9FA7B8</dd><dd class="ratio">8,29:1 · après envoi</dd></dl></div>
+      <div class="ton"><span class="pastille" style="background:#ff9256"></span>
+        <dl><dt>braise</dt><dd>#FF9256</dd><dd class="ratio">9,06:1 · nommer, agir, signer</dd></dl></div>
+      <div class="ton"><span class="pastille" style="background:#7c8191"></span>
+        <dl><dt>texte éteint</dt><dd>#7C8191</dd><dd class="ratio">5,16:1</dd></dl></div>
+      <div class="ton"><span class="pastille" style="background:#5a6273"></span>
+        <dl><dt>trait</dt><dd>#5A6273</dd><dd class="ratio">3,27:1 · rail, soulignement</dd></dl></div>
+      <div class="ton"><span class="pastille" style="background:#535d72"></span>
+        <dl><dt>station inactive</dt><dd>#535D72</dd><dd class="ratio">3,03:1 · corrigé</dd></dl></div>
+    </div>
+    <p class="note">
+      Une seule couleur chaude dans tout le produit, autorisée sur trois choses seulement :
+      <strong>nommer le contenu</strong>, <strong>déclencher l'action</strong>,
+      <strong>signer la révélation</strong>. Le jour où quelqu'un propose « juste un vert pour
+      le défi réussi », la direction commence à mourir.
+    </p>
+  </section>
+
+  <!-- ======================================================== corrections -->
+  <section>
+    <h2>Ce qui doit changer avant d'écrire du Dart</h2>
+    <div class="corrections">
+      <div class="fix"><b>corrigé ici</b><p>
+        L'indicateur des trois stations était à <code>#2A2F3A</code>, soit <strong>1,49:1</strong> —
+        invisible. C'est pourtant la seule chose qui dit qu'il y a trois contenus et pas un.
+        Passé à <code>#535D72</code>, 3,03:1.</p></div>
+      <div class="fix"><b>corrigé ici</b><p>
+        Les pastilles de série faisaient 4 pt : à cette taille, l'anneau vide et le disque plein
+        sont indiscernables, et c'est le seul signal de complétude. Passées à <strong>6 pt</strong>.</p></div>
+      <div class="fix"><b>à trancher</b><p>
+        Le halation. Un texte à 16:1 sur fond noir, c'est le <strong>maximum de contraste, donc
+        le maximum de bavement</strong> — surtout pour les astigmates. Baisser le texte courant à
+        <code>#D6CFC7</code> (≈13:1) réduit l'éblouissement sans sortir de AA. Contre-intuitif, et
+        c'est la seule vraie atténuation.</p></div>
+      <div class="fix"><b>à trancher</b><p>
+        Les 217 pt de nuit entre le champ et le bouton sont déclarés « non compressibles ».
+        C'est la seule décision purement décorative de la direction, et elle bloque la seule
+        réserve disponible : <strong>en espagnol, un débat de 20 mots déborde</strong>. La rendre
+        compressible jusqu'à 96 pt sous contrainte.</p></div>
+      <div class="fix"><b>à trancher</b><p>
+        L'échelle n'affiche aucun chiffre. Pour un lecteur d'écran, la station Débat n'a donc
+        <strong>littéralement aucun contenu après révélation</strong>. Il faut écrire la chaîne
+        d'accessibilité maintenant (« vous : 4 sur 5 ; Camille : 2 sur 5 »), en assumant qu'elle
+        contredit le parti pris.</p></div>
+      <div class="fix"><b>à trancher</b><p>
+        Le flou par ligne à la révélation est une passe de rendu hors écran par frame.
+        <strong>Le repli — opacité et translation — doit être le défaut</strong>, le flou une
+        option activée sur appareils testés. La spec propose l'inverse.</p></div>
+      <div class="fix"><b>à décider</b><p>
+        Il n'y a pas de mode clair, c'est le prix de la métaphore. Reste le cas de l'erreur
+        bloquante : sans rouge ni vert, une panne réseau dans une app à 85 % noire
+        <strong>ne se verra pas</strong>. L'exception doit être écrite maintenant, sinon elle
+        sera improvisée et deviendra la brèche.</p></div>
+    </div>
+    <p class="note">
+      Substitution honnête : le produit utilise <strong>Newsreader</strong> (voix de l'app) et
+      <strong>Inter</strong> (voix des personnes). Cette page ne peut pas charger de police
+      externe, elle affiche donc des équivalents système. La règle de voix, elle, est exacte :
+      le serif ne parle jamais à la place d'un humain.
+    </p>
+  </section>
+
+</div>
