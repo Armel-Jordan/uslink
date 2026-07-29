@@ -71,7 +71,11 @@ create table if not exists public.reactions (
   id uuid primary key default gen_random_uuid(),
   answer_id uuid not null references public.answers on delete cascade,
   user_id uuid not null references auth.users on delete cascade,
-  emoji text not null,
+  -- Borné : sans longueur maximale, « emoji » est un champ de texte libre
+  -- affiché dans les Souvenirs de l'autre. Nommée explicitement pour que ce
+  -- fichier et 0001_hardening.sql produisent le même schéma.
+  emoji text not null
+    constraint reactions_emoji_shape check (char_length(emoji) between 1 and 8),
   created_at timestamptz not null default now(),
   unique (answer_id, user_id, emoji)
 );
@@ -161,6 +165,26 @@ create trigger answers_touch_updated_at
   before update on public.answers
   for each row execute function public.touch_updated_at();
 
+-- Un WITH CHECK valide la ligne finale ; il n'empêche pas de repointer une clé.
+-- Sans ce garde-fou, un membre peut déplacer sa propre réponse vers le prompt
+-- d'un autre lien, où elle s'affiche comme la réponse du partenaire.
+create or replace function public.answers_freeze_keys()
+returns trigger language plpgsql as $$
+begin
+  if new.id is distinct from old.id
+     or new.prompt_id is distinct from old.prompt_id
+     or new.author_id is distinct from old.author_id
+     or new.created_at is distinct from old.created_at then
+    raise exception 'immutable_answer_key';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists answers_no_repoint on public.answers;
+create trigger answers_no_repoint
+  before update on public.answers
+  for each row execute function public.answers_freeze_keys();
+
 -- ------------------------------------------------------------------- RPCs
 
 create or replace function public.new_invite_code()
@@ -237,13 +261,100 @@ begin
     raise exception 'own_code';
   end if;
 
+  -- Verrou : sans lui, deux sessions rejouant le même code passent toutes les
+  -- deux le comptage et font entrer un troisième membre. Si la ligne a disparu
+  -- entre-temps, `for update` ne verrouille rien — d'où le test.
+  perform 1 from public.links where id = v_link for update;
+  if not found then
+    raise exception 'invalid_code';
+  end if;
+
   select count(*) into v_members from public.link_members where link_id = v_link;
   if v_members >= 2 then
     raise exception 'link_full';
   end if;
 
   insert into public.link_members (link_id, user_id) values (v_link, v_uid);
+
+  -- Le code est consommé : un lien complet n'est plus rejoignable, même si la
+  -- capture d'écran circule encore.
+  delete from public.invites where link_id = v_link;
+
   return v_link;
+end $$;
+
+/**
+ * Quitter son lien. Passe obligatoirement par ici plutôt que par un DELETE
+ * client sur link_members : seule cette fonction purge les invites (sinon le
+ * code rouvre un lien redevenu à un membre) et ramasse un lien vide.
+ */
+create or replace function public.leave_link()
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_link uuid;
+  v_left int;
+begin
+  if v_uid is null then
+    raise exception 'auth';
+  end if;
+
+  select link_id into v_link from public.link_members where user_id = v_uid;
+  if v_link is null then
+    return; -- déjà sans lien : idempotent
+  end if;
+
+  perform 1 from public.links where id = v_link for update;
+  if not found then
+    return; -- le lien a déjà disparu : rien à nettoyer
+  end if;
+
+  delete from public.link_members where user_id = v_uid and link_id = v_link;
+  delete from public.invites where link_id = v_link;
+
+  select count(*) into v_left from public.link_members where link_id = v_link;
+  if v_left = 0 then
+    -- cascade : invites, daily_prompts, answers, reactions
+    delete from public.links where id = v_link;
+  end if;
+end $$;
+
+/**
+ * Un code est consommé à l'appairage et purgé au départ d'un membre. Sans ce
+ * chemin, le membre restant se retrouve sur l'écran d'invitation sans rien à
+ * partager, et sa seule sortie est de détruire l'archive.
+ */
+create or replace function public.regenerate_invite()
+returns text language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_link uuid;
+  v_members int;
+  v_code text;
+begin
+  if v_uid is null then
+    raise exception 'auth';
+  end if;
+
+  select link_id into v_link from public.link_members where user_id = v_uid;
+  if v_link is null then
+    raise exception 'no_link';
+  end if;
+
+  perform 1 from public.links where id = v_link for update;
+  if not found then
+    raise exception 'no_link';
+  end if;
+
+  select count(*) into v_members from public.link_members where link_id = v_link;
+  if v_members >= 2 then
+    raise exception 'link_full';
+  end if;
+
+  delete from public.invites where link_id = v_link;
+  v_code := public.new_invite_code();
+  insert into public.invites (code, link_id, created_by) values (v_code, v_link, v_uid);
+  return v_code;
 end $$;
 
 create or replace function public.my_link()
@@ -338,9 +449,9 @@ drop policy if exists link_members_select on public.link_members;
 create policy link_members_select on public.link_members for select to authenticated
   using (link_id = public.my_link_id());
 
+-- Pas de policy DELETE sur link_members : quitter un lien passe par la RPC
+-- leave_link(), qui seule purge les invites et supprime un lien devenu vide.
 drop policy if exists link_members_delete on public.link_members;
-create policy link_members_delete on public.link_members for delete to authenticated
-  using (user_id = auth.uid());
 
 drop policy if exists invites_select on public.invites;
 create policy invites_select on public.invites for select to authenticated
@@ -367,17 +478,28 @@ drop policy if exists answers_insert on public.answers;
 create policy answers_insert on public.answers for insert to authenticated
   with check (author_id = auth.uid() and public.can_see_prompt(prompt_id));
 
+-- can_see_prompt des deux côtés : un ex-membre perd l'écriture sur ses
+-- anciennes réponses, et ne peut pas les déplacer vers un autre lien.
 drop policy if exists answers_update on public.answers;
 create policy answers_update on public.answers for update to authenticated
-  using (author_id = auth.uid()) with check (author_id = auth.uid());
+  using (author_id = auth.uid() and public.can_see_prompt(prompt_id))
+  with check (author_id = auth.uid() and public.can_see_prompt(prompt_id));
 
 drop policy if exists reactions_select on public.reactions;
 create policy reactions_select on public.reactions for select to authenticated
   using (public.can_see_answer(answer_id));
 
+-- can_see_answer accorde l'accès dès `author_id = auth.uid()`, sans condition
+-- d'appartenance : sans can_see_prompt, un ex-membre peut encore écrire des
+-- « réactions » sur ses propres anciennes réponses, rendues telles quelles dans
+-- les Souvenirs du partenaire resté.
 drop policy if exists reactions_insert on public.reactions;
 create policy reactions_insert on public.reactions for insert to authenticated
-  with check (user_id = auth.uid() and public.can_see_answer(answer_id));
+  with check (
+    user_id = auth.uid()
+    and public.can_see_answer(answer_id)
+    and public.can_see_prompt((select a.prompt_id from public.answers a where a.id = answer_id))
+  );
 
 drop policy if exists reactions_delete on public.reactions;
 create policy reactions_delete on public.reactions for delete to authenticated
@@ -389,6 +511,8 @@ revoke all on function public.new_invite_code() from public, anon, authenticated
 
 grant execute on function public.create_link(text) to authenticated;
 grant execute on function public.join_link(text) to authenticated;
+grant execute on function public.leave_link() to authenticated;
+grant execute on function public.regenerate_invite() to authenticated;
 grant execute on function public.my_link() to authenticated;
 grant execute on function public.link_streak(uuid) to authenticated;
 grant execute on function public.my_link_id() to authenticated;

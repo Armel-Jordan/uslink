@@ -110,25 +110,34 @@ Deno.serve(async (req: Request) => {
     const context = await loadContext(admin, linkId);
     const generated = (await generateWithClaude(context)) ?? pickFallback(linkId, date);
 
-    const inserted = await admin
-      .from('daily_prompts')
-      .upsert(
-        {
-          link_id: linkId,
-          prompt_date: date,
-          question: generated.question,
-          category: generated.category,
-          source: generated.source,
-        },
-        { onConflict: 'link_id,prompt_date' },
-      )
-      .select('id, prompt_date, question, category, source')
-      .single();
-
-    if (inserted.error) {
-      return json({ error: inserted.error.message }, 500);
+    // `do nothing` et non `do update`: un second écrivain écrasait
+    // question/category en gardant le même id, ce qui change le texte sous les
+    // yeux de quelqu'un qui a peut-être déjà répondu. Premier arrivé gagne.
+    const { error: insertError } = await admin.from('daily_prompts').upsert(
+      {
+        link_id: linkId,
+        prompt_date: date,
+        question: generated.question,
+        category: generated.category,
+        source: generated.source,
+      },
+      { onConflict: 'link_id,prompt_date', ignoreDuplicates: true },
+    );
+    if (insertError) {
+      return json({ error: insertError.message }, 500);
     }
-    return json({ prompt: inserted.data, cached: false });
+
+    // On relit ce qui est réellement en base, pas ce qu'on voulait y écrire.
+    const stored = await admin
+      .from('daily_prompts')
+      .select('id, prompt_date, question, category, source')
+      .eq('link_id', linkId)
+      .eq('prompt_date', date)
+      .maybeSingle();
+    if (stored.error || !stored.data) {
+      return json({ error: stored.error?.message ?? 'prompt introuvable' }, 500);
+    }
+    return json({ prompt: stored.data, cached: false });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'unknown error' }, 500);
   }
@@ -177,7 +186,15 @@ async function generateWithClaude(
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!apiKey) return null;
 
-  const client = new Anthropic({ apiKey });
+  // Sans bornes, les défauts du SDK sont 10 min et 2 tentatives, soit ~30 min:
+  // la plateforme tue le worker bien avant, donc le catch plus bas n'est jamais
+  // atteint et aucun repli n'est écrit. Millisecondes.
+  //
+  // Ce budget doit rester SOUS EDGE_TIMEOUT_MS côté client (src/lib/data/
+  // supabase.ts). Sinon le client abandonne le premier, écrit sa question de
+  // bibliothèque, et l'écriture `do nothing` ci-dessous devient un no-op:
+  // Claude serait facturé chaque matin pour un résultat jeté en silence.
+  const client = new Anthropic({ apiKey, timeout: 12_000, maxRetries: 0 });
 
   const recentList = context.recent.length
     ? context.recent.map((r) => `- (${r.category}) ${r.question}`).join('\n')
@@ -197,7 +214,12 @@ async function generateWithClaude(
   // types at different releases, and this file is not covered by the app's tsc.
   const params = {
     model: MODEL,
-    max_tokens: 2048,
+    // La réflexion est active par défaut sur claude-opus-5 et max_tokens
+    // plafonne réflexion + texte ensemble: à 2048, une génération qui réfléchit
+    // un peu trop tronque le JSON, JSON.parse lève, et le repli s'active sans
+    // que personne ne le voie. On garde la réflexion (la désactiver fait fuiter
+    // des balises dans la sortie visible) et on desserre le plafond.
+    max_tokens: 8192,
     // Short creative generation: low effort keeps latency and cost down.
     output_config: {
       effort: 'low',

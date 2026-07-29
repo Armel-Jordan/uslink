@@ -1,6 +1,5 @@
-import * as Clipboard from 'expo-clipboard';
 import { useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
@@ -9,6 +8,7 @@ import { Field } from '@/components/ui/field';
 import { Screen } from '@/components/ui/screen';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { confirmDestructive } from '@/lib/confirm';
 import { useSession } from '@/lib/session';
 import { t } from '@/lib/strings';
 
@@ -27,28 +27,33 @@ export default function ProfileScreen() {
   const [emoji, setEmoji] = useState(profile?.avatarEmoji ?? '☀️');
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const save = async () => {
+  const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
+    setError(null);
     try {
-      await updateProfile({ displayName: name.trim() || 'Moi', avatarEmoji: emoji });
-      setSaved(true);
+      await fn();
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t.common.error);
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const confirmLeave = () => {
-    if (Platform.OS === 'web') {
-      void leaveLink();
-      return;
-    }
-    Alert.alert(t.profile.leave, t.profile.leaveConfirm, [
-      { text: t.profile.cancel, style: 'cancel' },
-      { text: t.profile.leave, style: 'destructive', onPress: () => void leaveLink() },
-    ]);
+  const save = async () => {
+    const ok = await run(() => updateProfile({ displayName: name.trim() || 'Moi', avatarEmoji: emoji }));
+    if (ok) setSaved(true);
   };
+
+  // `leave_link` supprime le lien dès qu'il ne reste personne, et la cascade
+  // emporte les souvenirs : jamais sans confirmation, web compris.
+  const confirmLeave = () =>
+    confirmDestructive(t.profile.leave, t.profile.leaveConfirm, t.profile.leave, t.profile.cancel, () =>
+      void run(leaveLink),
+    );
 
   return (
     <Screen withTabInset>
@@ -109,22 +114,9 @@ export default function ProfileScreen() {
           <ThemedText type="small" themeColor="textSecondary">
             {t.profile.mode} · {MODE_LABELS[link.mode] ?? link.mode}
           </ThemedText>
-
-          {link.inviteCode ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={async () => {
-                await Clipboard.setStringAsync(link.inviteCode as string);
-                setCopied(true);
-              }}>
-              <ThemedText type="small" themeColor="textSecondary">
-                {t.profile.inviteCode}
-              </ThemedText>
-              <ThemedText type="smallBold" style={{ color: theme.accent, letterSpacing: 4 }}>
-                {link.inviteCode} {copied ? `· ${t.pairing.copied}` : ''}
-              </ThemedText>
-            </Pressable>
-          ) : null}
+          {/* Pas de code d'invitation ici : cet écran n'est atteignable qu'une
+              fois relié, et `join_link` consomme l'invite à l'appairage. Le
+              code, et sa régénération, vivent sur l'écran d'appairage. */}
         </Card>
       ) : null}
 
@@ -132,8 +124,15 @@ export default function ProfileScreen() {
         <ThemedText type="smallBold" themeColor="danger">
           {t.profile.danger}
         </ThemedText>
-        {link ? <Button label={t.profile.leave} variant="secondary" onPress={confirmLeave} /> : null}
-        <Button label={t.profile.signOut} variant="ghost" onPress={() => void signOut()} />
+        {link ? (
+          <Button label={t.profile.leave} variant="secondary" onPress={confirmLeave} loading={busy} />
+        ) : null}
+        <Button label={t.profile.signOut} variant="ghost" onPress={() => void run(signOut)} />
+        {error ? (
+          <ThemedText type="small" themeColor="danger">
+            {error}
+          </ThemedText>
+        ) : null}
       </Card>
     </Screen>
   );

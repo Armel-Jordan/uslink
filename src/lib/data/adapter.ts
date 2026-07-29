@@ -6,6 +6,7 @@ export type DataErrorCode =
   | 'link_full'
   | 'already_linked'
   | 'no_link'
+  | 'no_prompt'
   | 'auth'
   | 'unknown';
 
@@ -39,6 +40,8 @@ export type DataAdapter = {
   getLink(): Promise<Link | null>;
   createLink(mode: LinkMode): Promise<Link>;
   joinLink(code: string): Promise<Link>;
+  /** Un code est consommé à l'appairage et purgé au départ : il faut pouvoir en refaire un. */
+  regenerateInvite(): Promise<string>;
   leaveLink(): Promise<void>;
 
   getToday(): Promise<TodayState | null>;

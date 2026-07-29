@@ -16,6 +16,7 @@ type SessionContextValue = {
   signOut: () => Promise<void>;
   createLink: (mode: LinkMode) => Promise<Link>;
   joinLink: (code: string) => Promise<Link>;
+  regenerateInvite: () => Promise<string>;
   leaveLink: () => Promise<void>;
   updateProfile: (patch: Partial<Pick<Profile, 'displayName' | 'avatarEmoji'>>) => Promise<void>;
 };
@@ -100,6 +101,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const joined = await data.joinLink(code);
         setLink(joined);
         return joined;
+      },
+      regenerateInvite: async () => {
+        const code = await data.regenerateInvite();
+        setLink((current) => (current ? { ...current, inviteCode: code } : current));
+        return code;
       },
       leaveLink: async () => {
         await data.leaveLink();

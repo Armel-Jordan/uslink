@@ -9,6 +9,7 @@ import { Field } from '@/components/ui/field';
 import { Screen } from '@/components/ui/screen';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { confirmDestructive } from '@/lib/confirm';
 import { DataError } from '@/lib/data';
 import { useSession } from '@/lib/session';
 import { t } from '@/lib/strings';
@@ -24,7 +25,7 @@ const MODES: { mode: LinkMode; label: string; hint: string; emoji: string; enabl
 
 export default function PairScreen() {
   const theme = useTheme();
-  const { link, createLink, joinLink, leaveLink, refresh, signOut } = useSession();
+  const { link, createLink, joinLink, leaveLink, regenerateInvite, refresh, signOut } = useSession();
   const [step, setStep] = useState<Step>('mode');
   const [mode, setMode] = useState<LinkMode>('couple');
   const [code, setCode] = useState('');
@@ -56,9 +57,11 @@ export default function PairScreen() {
 
   // A link exists but the partner has not joined yet: show the invite code.
   if (link && !link.partner) {
+    const code = link.inviteCode;
+
     const copyCode = async () => {
-      if (!link.inviteCode) return;
-      await Clipboard.setStringAsync(link.inviteCode);
+      if (!code) return;
+      await Clipboard.setStringAsync(code);
       setCopied(true);
     };
 
@@ -67,26 +70,58 @@ export default function PairScreen() {
         <View style={styles.header}>
           <ThemedText type="subtitle">{t.pairing.invite}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            {t.pairing.inviteHint}
+            {code ? t.pairing.inviteHint : t.pairing.noCode}
           </ThemedText>
         </View>
 
         <Card>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t.pairing.copy}
-            onPress={copyCode}
-            style={[styles.codeBox, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
-            <ThemedText style={[styles.code, { color: theme.accent }]}>{link.inviteCode ?? '—'}</ThemedText>
-          </Pressable>
-          <Button label={copied ? t.pairing.copied : t.pairing.copy} variant="secondary" onPress={copyCode} />
+          {/* Un code est consommé à l'appairage et purgé quand un membre part :
+              sans ce chemin, le membre restant n'a plus rien à partager et sa
+              seule sortie est le bouton destructeur plus bas. */}
+          {code ? (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t.pairing.copy}
+                onPress={copyCode}
+                style={[styles.codeBox, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
+                <ThemedText style={[styles.code, { color: theme.accent }]}>{code}</ThemedText>
+              </Pressable>
+              <Button label={copied ? t.pairing.copied : t.pairing.copy} variant="secondary" onPress={copyCode} />
+            </>
+          ) : (
+            <Button
+              label={t.pairing.regenerate}
+              onPress={() =>
+                void run(async () => {
+                  await regenerateInvite();
+                  await refresh();
+                  setCopied(false);
+                })
+              }
+              loading={busy}
+            />
+          )}
           <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
             {t.pairing.waiting}
           </ThemedText>
           <Button label={t.common.retry} variant="ghost" onPress={() => void run(refresh)} loading={busy} />
+          {error ? (
+            <ThemedText type="small" themeColor="danger">
+              {error}
+            </ThemedText>
+          ) : null}
         </Card>
 
-        <Button label={t.profile.leave} variant="ghost" onPress={() => void run(leaveLink)} />
+        <Button
+          label={t.profile.leave}
+          variant="ghost"
+          onPress={() =>
+            confirmDestructive(t.profile.leave, t.profile.leaveConfirm, t.profile.leave, t.profile.cancel, () =>
+              void run(leaveLink),
+            )
+          }
+        />
       </Screen>
     );
   }

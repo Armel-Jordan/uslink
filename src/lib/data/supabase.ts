@@ -1,4 +1,5 @@
 import { pickLibraryPrompt } from '@/lib/prompt-library';
+import { t } from '@/lib/strings';
 import { requireSupabase } from '@/lib/supabase';
 import type { Answer, DailyPrompt, HistoryEntry, Link, LinkMode, Profile, Session, TodayState } from '@/lib/types';
 
@@ -75,9 +76,16 @@ function toLink(row: MyLinkRow): Link {
   };
 }
 
-/** `join_link` raises these as Postgres exception messages. */
+/** `join_link`, `leave_link` and `regenerate_invite` raise these as Postgres exception messages. */
 function toDataError(message: string): DataError {
-  const known: DataErrorCode[] = ['invalid_code', 'own_code', 'link_full', 'already_linked'];
+  const known: DataErrorCode[] = [
+    'invalid_code',
+    'own_code',
+    'link_full',
+    'already_linked',
+    'no_link',
+    'auth',
+  ];
   const hit = known.find((code) => message.includes(code));
   return hit ? new DataError(hit, message) : new DataError('unknown', message);
 }
@@ -183,11 +191,18 @@ export const supabaseAdapter: DataAdapter = {
     return link;
   },
 
+  async regenerateInvite() {
+    const { data, error } = await requireSupabase().rpc('regenerate_invite');
+    if (error) throw toDataError(error.message);
+    if (typeof data !== 'string') throw new DataError('unknown', 'Code non généré.');
+    return data;
+  },
+
   async leaveLink() {
-    const supabase = requireSupabase();
-    const userId = await currentUserId();
-    const { error } = await supabase.from('link_members').delete().eq('user_id', userId);
-    if (error) throw new DataError('unknown', error.message);
+    // Passe par la RPC : elle seule purge les invites (sinon le code rouvre un
+    // lien redevenu à un membre) et supprime un lien devenu vide.
+    const { error } = await requireSupabase().rpc('leave_link');
+    if (error) throw toDataError(error.message);
   },
 
   async getToday() {
@@ -296,39 +311,55 @@ async function fetchPrompt(linkId: string, date: string): Promise<DailyPrompt | 
 }
 
 /**
+ * Doit rester AU-DESSUS du budget serveur (`timeout` x `maxRetries` du SDK
+ * Anthropic dans supabase/functions/daily-prompt), sans quoi le client écrit sa
+ * question de bibliothèque en premier et l'écriture `do nothing` de la fonction
+ * devient un no-op : l'IA perdrait la course tous les jours, en silence.
+ */
+const EDGE_TIMEOUT_MS = 20_000;
+
+/**
  * Ask the Edge Function for an AI-personalised question. If it is not deployed
  * or Claude is unavailable, fall back to the local library so the daily ritual
  * never breaks — the user only sees a different `source` badge.
  */
 async function generatePrompt(link: Link, date: string): Promise<DailyPrompt> {
   const supabase = requireSupabase();
+  // `invoke` ne lève pas : un timeout revient en `{ error }`. Le catch ne couvre
+  // donc que l'imprévu, et surtout pas `fetchPrompt`, dont l'erreur doit remonter.
+  let invoked = false;
   try {
     const { data, error } = await supabase.functions.invoke('daily-prompt', {
       body: { linkId: link.id, date },
+      timeout: EDGE_TIMEOUT_MS,
     });
-    if (!error && data?.prompt) {
-      const fresh = await fetchPrompt(link.id, date);
-      if (fresh) return fresh;
-    }
+    invoked = !error && Boolean(data?.prompt);
   } catch {
     // fall through to the library
   }
+  if (invoked) {
+    const fresh = await fetchPrompt(link.id, date);
+    if (fresh) return fresh;
+  }
 
+  // `on conflict do nothing` et non un UPDATE : daily_prompts n'a pas de policy
+  // UPDATE, donc un upsert en conflit échouerait en 42501 — c'est le seul
+  // chemin qui laissait réellement une journée sans question. Premier arrivé
+  // gagne, et on relit ce qui est en base plutôt que ce qu'on voulait écrire.
   const picked = pickLibraryPrompt(link.mode, link.id, date);
-  const { data, error } = await supabase
-    .from('daily_prompts')
-    .upsert(
-      {
-        link_id: link.id,
-        prompt_date: date,
-        question: picked.question,
-        category: picked.category,
-        source: 'library',
-      },
-      { onConflict: 'link_id,prompt_date' },
-    )
-    .select('id, prompt_date, question, category, source')
-    .single();
+  const { error } = await supabase.from('daily_prompts').upsert(
+    {
+      link_id: link.id,
+      prompt_date: date,
+      question: picked.question,
+      category: picked.category,
+      source: 'library',
+    },
+    { onConflict: 'link_id,prompt_date', ignoreDuplicates: true },
+  );
   if (error) throw new DataError('unknown', error.message);
-  return toPrompt(data as PromptRow);
+
+  const stored = await fetchPrompt(link.id, date);
+  if (!stored) throw new DataError('no_prompt', t.common.noPrompt);
+  return stored;
 }

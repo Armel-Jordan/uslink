@@ -52,6 +52,8 @@ export const fr = {
     ownCode: 'Ce code est le vôtre — partagez-le à votre partenaire.',
     full: 'Ce lien est déjà complet.',
     back: 'Retour',
+    noCode: "Ce lien n'a plus de code d'invitation actif.",
+    regenerate: 'Générer un nouveau code',
   },
 
   today: {
@@ -93,7 +95,8 @@ export const fr = {
     mode: 'Mode',
     signOut: 'Se déconnecter',
     leave: 'Quitter ce lien',
-    leaveConfirm: 'Quitter ce lien ? Vos souvenirs resteront, mais vous ne serez plus reliés.',
+    leaveConfirm:
+      "Quitter ce lien ? Le code d'invitation sera révoqué. Si vous partez tous les deux, vos souvenirs seront supprimés.",
     danger: 'Zone sensible',
     demoBanner: 'Mode démo — les données restent sur cet appareil.',
     cancel: 'Annuler',
@@ -103,6 +106,7 @@ export const fr = {
     loading: 'Chargement…',
     retry: 'Réessayer',
     error: 'Une erreur est survenue.',
+    noPrompt: "La question du jour n'a pas pu être ouverte. Réessayez dans un instant.",
     ok: 'OK',
   },
 } as const;

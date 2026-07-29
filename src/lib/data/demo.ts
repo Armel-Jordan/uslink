@@ -237,8 +237,20 @@ export const demoAdapter: DataAdapter = {
     return link;
   },
 
+  async regenerateInvite() {
+    const state = await read();
+    const link = requireLink(state);
+    const next = code();
+    await write({ ...state, link: { ...link, inviteCode: next } });
+    return next;
+  },
+
   async leaveLink() {
     const state = await read();
+    requireSession(state);
+    // Le partenaire de démo est scripté : partir, c'est partir à deux. C'est
+    // donc bien le cas « plus personne dans le lien » côté Supabase, où la
+    // cascade emporte prompts, réponses et réactions.
     await write({ ...state, link: null, prompts: [], answers: [], seeded: false });
   },
 
