@@ -64,6 +64,67 @@ abstract final class Fr {
   static const defiReleve = 'relevé';
   static const defiManque = 'pas cette fois';
 
+  // ------------------------------------------------------------ onboarding
+  //
+  // Aucun emoji. Trois classes de traitement:
+  //   A — l'emoji redit son libellé: on supprime, la suppression est le dessin.
+  //   B — il porte une fonction que le mot ne porte pas: il devient un MOT.
+  //   C — il porte un ÉTAT: il devient une forme déjà du vocabulaire (filet,
+  //       cercle, pastille), jamais le dessin d'une chose.
+  // Un mot passe l'espagnol ; un pictogramme demande d'être dessiné, documenté
+  // et deviné.
+
+  static String etape(int n, int total) => 'étape $n sur $total';
+
+  static const faisonsConnaissance = 'Faisons connaissance';
+  static const prenom = 'prénom';
+  static const age = 'âge';
+  static const ville = 'ville';
+  static const anniversaire = 'date d’anniversaire';
+  static const debutRelation = 'début de votre relation';
+  static const continuer = 'Continuer';
+  static const plusTard = 'Plus tard';
+
+  static const reliezVosComptes = 'Reliez vos comptes';
+  static const votreCode = 'votre code';
+  static const copier = 'Copier';
+  static const codeCopie = 'Copié';
+  static const partagezLe = 'Partagez-le avec votre partenaire.';
+  static const ou = 'ou';
+  static const jaiUnCode = 'j’ai déjà un code';
+  static const rejoindre = 'Rejoindre';
+
+  static const vosObjectifs = 'Ce que vous voulez travailler';
+  static const complicite = 'complicité';
+  static const decouverte = 'découverte';
+  static const fun = 'fun';
+
+  static const votreMode = 'Comment vous vous reliez';
+  static const modeCouple = 'en couple';
+  static const modeAmis = 'entre amis';
+  static const modeAleatoire = 'aléatoire';
+  static const bientot = 'bientôt';
+
+  // ---------------------------------------------------------- les réglages
+
+  static const compte = 'compte';
+  static const preferences = 'préférences';
+  static const contenu = 'contenu';
+  static const confidentialite = 'confidentialité';
+
+  static const monProfil = 'Mon profil';
+  static const gererLeCouple = 'Gérer le couple';
+  static const langue = 'Langue';
+  static const notifications = 'Notifications';
+  static const luminosite = 'Luminosité';
+  // Pas « Thème » : il n'y a pas de thème clair. Ce réglage éclaircit le fond,
+  // il ne bascule pas vers un autre design.
+  static const luminositeAide =
+      'Éclaircit le fond pour la lecture de jour. La révélation garde son éclat.';
+  static const niveauIntimite = 'Niveau d’intimité';
+  static const supprimerMesDonnees = 'Supprimer mes données';
+  static const seDeconnecter = 'Se déconnecter';
+
   // ---------------------------------------------------------- les métriques
   //
   // RÈGLE: on garde ce qui MONTE ou ce qui DÉCRIT, on retire ce qui COMPARE.

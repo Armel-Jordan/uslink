@@ -41,6 +41,19 @@ l'affirmation, le défi à relever. La sans-serif (Inter) est la voix des deux
 personnes et de l'interface. Aucune exception : c'est cette règle qui fait qu'on
 sait qui parle sans avoir à l'écrire.
 
+**La lisière est une barre, et c'est assumé.** « Pas de barre d'onglets » était
+une conclusion tirée trop tôt : ce que la direction interdit est le *conteneur*,
+l'élévation, l'icône polychrome et le point chaud permanent — pas la
+persistance. Quatre mots posés sur l'arête basse, sans fond ni filet, quatre
+colonnes égales. L'état actif se lit à la luminosité, **jamais à la braise** :
+une barre qui brille en permanence concurrencerait la révélation. Elle s'efface
+pendant la révélation, jamais pendant l'écriture — un écran sans issue visible
+pendant qu'on écrit est un piège, pas de l'élégance.
+
+Le refus coûtait plus qu'il ne rapportait : sans elle, quatre destinations
+demandent quatre titres, quatre flèches de retour et deux gestes que personne ne
+devine. Six éléments de chrome contre un.
+
 **Pas de carte, pas d'ombre, pas de coin arrondi** sauf les cercles. Le texte est
 posé à même la nuit. **Pas d'emoji** : ils sont polychromes et détruiraient à eux
 seuls la discipline d'une couleur unique. Les fonctions sont des mots.
