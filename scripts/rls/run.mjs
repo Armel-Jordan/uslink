@@ -57,6 +57,13 @@ async function apply(db, label, sql) {
 async function fingerprint(db) {
   const q = async (sql) => (await db.query(sql)).rows;
   return {
+    // Les colonnes en premier, et surtout leurs DÉFAUTS : une migration qui
+    // ajoute une colonne `not null` en oubliant son défaut produit deux bases
+    // au comportement différent, alors que policies et contraintes sont
+    // identiques. C'est arrivé, d'où cette ligne.
+    colonnes: await q(`select table_name||'.'||column_name as k, data_type, is_nullable, column_default
+                       from information_schema.columns
+                       where table_schema = 'public' order by 1`),
     policies: await q(`select schemaname||'.'||tablename||'.'||policyname as k, cmd, qual, with_check
                        from pg_policies where schemaname = 'public' order by 1`),
     fonctions: await q(`select p.proname, pg_get_function_identity_arguments(p.oid) as args, p.prosecdef
@@ -75,9 +82,23 @@ async function fingerprint(db) {
 async function runAssertions(db) {
   const file = read('supabase/tests/rls.test.sql');
   const cut = file.indexOf('do $report$');
-  const out = await db.exec(
-    file.slice(0, cut) + `select ok, name, coalesce(detail, '') as detail from _results order by ord;`,
-  );
+  let out;
+  try {
+    out = await db.exec(
+      file.slice(0, cut) + `select ok, name, coalesce(detail, '') as detail from _results order by ord;`,
+    );
+  } catch (e) {
+    // Une erreur ici est une erreur du FICHIER de test (pas d'une assertion) :
+    // elle interrompt la transaction, donc le journal est perdu. Ne pas laisser
+    // Node déverser l'objet d'erreur entier, illisible.
+    say(false, `le fichier de test a levé : ${e.message}`);
+    try {
+      await db.exec('rollback');
+    } catch {
+      // la transaction était déjà avortée
+    }
+    return [];
+  }
   const rows = out[out.length - 1].rows;
   await db.exec('rollback');
   for (const r of rows.filter((r) => !r.ok)) console.log(`  FAIL  ${r.name} — ${r.detail}`);

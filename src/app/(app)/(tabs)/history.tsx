@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { AnswerBubble } from '@/components/answer-bubble';
+import { StanceChoice } from '@/components/stance-choice';
 import { ThemedText } from '@/components/themed-text';
 import { Card } from '@/components/ui/card';
 import { Screen } from '@/components/ui/screen';
@@ -57,40 +58,75 @@ export default function HistoryScreen() {
           </ThemedText>
         </Card>
       ) : (
+        // Une journée est l'unité de souvenir, pas un contenu : on relit un
+        // jour de sa vie, pas une question isolée.
         entries.map((entry) => (
-          <Card key={entry.prompt.id} style={styles.entry}>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.date}>
-              {formatDate(entry.prompt.date)}
-            </ThemedText>
-            <ThemedText type="smallBold" style={styles.question}>
-              {entry.prompt.question}
-            </ThemedText>
-
-            {entry.mine ? (
-              <AnswerBubble
-                author={t.today.you}
-                emoji={profile?.avatarEmoji ?? '☀️'}
-                answer={entry.mine}
-                voice="mine"
-              />
-            ) : (
-              <ThemedText type="small" themeColor="textSecondary">
-                {t.history.unanswered}
+          <Card key={entry.date} style={styles.entry}>
+            <View style={styles.dayHeader}>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.date}>
+                {formatDate(entry.date)}
               </ThemedText>
-            )}
-
-            {entry.theirs ? (
-              <AnswerBubble
-                author={link?.partner?.displayName ?? '…'}
-                emoji={link?.partner?.avatarEmoji ?? '🌙'}
-                answer={entry.theirs}
-                voice="theirs"
-              />
-            ) : entry.mine ? (
               <ThemedText type="small" themeColor="textSecondary">
-                {t.history.onlyYou}
+                {t.history.dayItems(entry.items.length)}
               </ThemedText>
-            ) : null}
+            </View>
+
+            {entry.items.map(({ prompt, mine, theirs }) => (
+              <View key={prompt.id} style={styles.item}>
+                <ThemedText type="smallBold" style={styles.question}>
+                  {prompt.question}
+                </ThemedText>
+
+                {prompt.kind === 'challenge' ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {mine
+                      ? `${t.today.you} · ${mine.done ? t.today.challengeDone : t.today.challengeMissed}`
+                      : t.history.unanswered}
+                    {theirs
+                      ? `   ${link?.partner?.displayName ?? '…'} · ${theirs.done ? t.today.challengeDone : t.today.challengeMissed}`
+                      : ''}
+                  </ThemedText>
+                ) : (
+                  <>
+                    {prompt.kind === 'debate' && prompt.options && 'low' in prompt.options ? (
+                      <StanceChoice
+                        low={prompt.options.low}
+                        high={prompt.options.high}
+                        value={mine?.stance ?? null}
+                        partner={theirs?.stance ?? null}
+                        disabled
+                      />
+                    ) : null}
+
+                    {mine ? (
+                      <AnswerBubble
+                        author={t.today.you}
+                        emoji={profile?.avatarEmoji ?? '☀️'}
+                        answer={mine}
+                        voice="mine"
+                      />
+                    ) : (
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {t.history.unanswered}
+                      </ThemedText>
+                    )}
+
+                    {theirs ? (
+                      <AnswerBubble
+                        author={link?.partner?.displayName ?? '…'}
+                        emoji={link?.partner?.avatarEmoji ?? '🌙'}
+                        answer={theirs}
+                        voice="theirs"
+                      />
+                    ) : mine ? (
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {t.history.onlyYou}
+                      </ThemedText>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            ))}
           </Card>
         ))
       )}
@@ -101,6 +137,15 @@ export default function HistoryScreen() {
 const styles = StyleSheet.create({
   entry: {
     gap: Spacing.three,
+  },
+  dayHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  item: {
+    gap: Spacing.two,
   },
   date: {
     textTransform: 'capitalize',

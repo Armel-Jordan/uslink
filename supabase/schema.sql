@@ -55,28 +55,80 @@ create table if not exists public.invites (
   created_at timestamptz not null default now()
 );
 
+-- Débat, question et défi ne sont pas trois fonctionnalités : ce sont trois
+-- instances de la même primitive. Une seule table, donc une seule copie de la
+-- policy la plus sensible du produit.
 create table if not exists public.daily_prompts (
   id uuid primary key default gen_random_uuid(),
   link_id uuid not null references public.links on delete cascade,
   prompt_date date not null,
+  kind text not null default 'question'
+    constraint daily_prompts_kind_check check (kind in ('question', 'debate', 'challenge')),
   question text not null,
   category text not null default 'général',
+  -- Fermé par un CHECK discriminé : aucune clé surnuméraire n'est acceptée.
+  -- C'est ce qui empêche `options` de dériver vers un fourre-tout.
+  options jsonb not null default '{}'::jsonb,
+  intimacy_level smallint not null default 1
+    constraint daily_prompts_intimacy_check check (intimacy_level between 1 and 3),
+  -- Non nul = contenu de soirée thématique, hors du rythme quotidien.
+  bundle text,
   source text not null default 'library' check (source in ('ai', 'library')),
   created_at timestamptz not null default now(),
-  unique (link_id, prompt_date)
+  -- `?&` et `?` d'abord, et ce n'est pas cosmétique : un CHECK qui s'évalue à
+  -- NULL est SATISFAIT. Sur une clé absente, `jsonb_typeof(options -> 'high')`
+  -- vaut NULL, la comparaison vaut NULL, et un débat sans pôle passerait.
+  constraint daily_prompts_options_shape check (
+    case kind
+      when 'question' then options = '{}'::jsonb
+      when 'debate' then options ?& array['low', 'high']
+                     and jsonb_typeof(options -> 'low') = 'string'
+                     and jsonb_typeof(options -> 'high') = 'string'
+                     and (options - 'low' - 'high') = '{}'::jsonb
+      when 'challenge' then options ? 'duration_min'
+                        and jsonb_typeof(options -> 'duration_min') = 'number'
+                        and (options - 'duration_min') = '{}'::jsonb
+    end
+  ),
+  -- Cible de la clé étrangère composite d'answers.
+  constraint daily_prompts_id_kind unique (id, kind)
 );
+
+-- Un contenu par (lien, jour, type). Les items de soirée portent un bundle et
+-- échappent volontairement à l'unicité quotidienne.
+create unique index if not exists daily_prompts_one_per_kind
+  on public.daily_prompts (link_id, prompt_date, kind) where bundle is null;
 
 create index if not exists daily_prompts_link_date_idx
   on public.daily_prompts (link_id, prompt_date desc);
 
 create table if not exists public.answers (
   id uuid primary key default gen_random_uuid(),
-  prompt_id uuid not null references public.daily_prompts on delete cascade,
+  prompt_id uuid not null,
+  -- Dénormalisé, parce qu'un CHECK ne peut pas lire la table parente. La clé
+  -- étrangère composite ci-dessous garantit qu'il vaut celui du contenu :
+  -- intégrité déclarative plutôt qu'un trigger faisant un SELECT par insertion.
+  kind text not null default 'question',
   author_id uuid not null references auth.users on delete cascade,
-  body text not null check (char_length(body) between 1 and 4000),
+  body text,
+  stance smallint,
+  done boolean,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (prompt_id, author_id)
+  unique (prompt_id, author_id),
+  constraint answers_prompt_fk foreign key (prompt_id, kind)
+    references public.daily_prompts (id, kind) on delete cascade,
+  constraint answers_shape check (
+    case kind
+      when 'question' then stance is null and done is null
+                       and char_length(btrim(body)) between 1 and 4000
+      when 'debate' then stance between 1 and 5 and done is null
+                     and char_length(btrim(body)) between 1 and 4000
+      -- Un défi ne porte AUCUN texte : sinon un appui sur « fait »
+      -- déverrouillerait le commentaire écrit du partenaire.
+      when 'challenge' then stance is null and done is not null and body is null
+    end
+  )
 );
 
 create index if not exists answers_prompt_idx on public.answers (prompt_id);
@@ -178,11 +230,25 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
+/**
+ * Avoir répondu, c'est avoir répondu QUELQUE CHOSE. L'existence d'une ligne ne
+ * suffit pas : on écrivait « . », on lisait la réponse de l'autre, on
+ * réécrivait. La clause de grand-père évite de re-verrouiller des souvenirs
+ * déjà lus, écrits quand le seuil n'existait pas.
+ */
 create or replace function public.has_answered(p_prompt uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
-    select 1 from public.answers
-    where prompt_id = p_prompt and author_id = auth.uid()
+    select 1
+    from public.answers a
+    join public.daily_prompts p on p.id = a.prompt_id
+    where a.prompt_id = p_prompt and a.author_id = auth.uid()
+      and (
+        a.created_at < '2026-07-29'::timestamptz
+        or (p.kind = 'question' and char_length(btrim(a.body)) >= 15)
+        or (p.kind = 'debate' and a.stance is not null and char_length(btrim(a.body)) >= 15)
+        or (p.kind = 'challenge' and a.done is not null)
+      )
   );
 $$;
 
@@ -549,10 +615,13 @@ begin
   v_date := v_today;
 
   loop
+    -- Au moins UN des trois contenus suffit : en exiger trois punirait un soir
+    -- chargé plus que ne le mérite un rituel, et ferait tomber à zéro toutes
+    -- les séries antérieures aux trois contenus.
     select count(distinct a.author_id) >= 2 into v_done
     from public.daily_prompts p
     join public.answers a on a.prompt_id = p.id
-    where p.link_id = p_link_id and p.prompt_date = v_date;
+    where p.link_id = p_link_id and p.prompt_date = v_date and p.bundle is null;
 
     if coalesce(v_done, false) then
       v_streak := v_streak + 1;

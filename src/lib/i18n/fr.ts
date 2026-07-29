@@ -72,6 +72,21 @@ export const fr = {
     frozen: (name: string) => `${name} a répondu : votre réponse est figée. C'est ce qui la rend sincère.`,
     you: 'Vous',
     streak: makePlural('fr', { one: '{n} jour de suite', other: '{n} jours de suite' }),
+    kindDebate: 'Débat',
+    kindQuestion: 'Question',
+    kindChallenge: 'Défi',
+    yourStance: 'Votre position',
+    whyStance: 'Pourquoi ?',
+    challengeDo: "Je l'ai fait",
+    challengeSkip: 'Pas cette fois',
+    challengeDone: 'Relevé',
+    challengeMissed: 'Pas cette fois',
+    duration: (n: number) => `${n} min`,
+    // La base gèle la réponse dès que l'autre a répondu : mieux vaut empêcher
+    // d'envoyer trop court que de laisser quelqu'un figé avec « . ».
+    tooShort: makePlural('fr', { one: 'Encore {n} caractère', other: 'Encore {n} caractères' }),
+    allAnswered: 'Vous avez tout répondu aujourd’hui.',
+    stanceLabel: (n: number, low: string, high: string) => `${n} sur 5, de « ${low} » à « ${high} »`,
     noStreak: 'Commencez votre série aujourd’hui',
     aiHint: 'Question personnalisée par IA',
     libraryHint: 'Question de notre sélection',
@@ -84,6 +99,7 @@ export const fr = {
     empty: 'Vos échanges apparaîtront ici, jour après jour.',
     unanswered: 'Sans réponse',
     onlyYou: 'Vous seul(e) avez répondu',
+    dayItems: makePlural('fr', { one: '{n} contenu', other: '{n} contenus' }),
   },
 
   profile: {

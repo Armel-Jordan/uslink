@@ -1,5 +1,16 @@
 import type { Locale } from '@/lib/strings';
-import type { Answer, DailyPrompt, HistoryEntry, Link, LinkMode, Profile, Session, TodayState } from '@/lib/types';
+import type {
+  Answer,
+  AnswerInput,
+  DailyPrompt,
+  HistoryEntry,
+  ItemKind,
+  Link,
+  LinkMode,
+  Profile,
+  Session,
+  TodayState,
+} from '@/lib/types';
 
 export type DataErrorCode =
   | 'invalid_code'
@@ -53,7 +64,8 @@ export type DataAdapter = {
   leaveLink(): Promise<void>;
 
   getToday(): Promise<TodayState | null>;
-  submitAnswer(promptId: string, body: string): Promise<Answer>;
+  /** L'union `AnswerInput` interdit à la compilation les formes qu'`answers_shape` refuse à l'exécution. */
+  submitAnswer(promptId: string, input: AnswerInput): Promise<Answer>;
   toggleReaction(answerId: string, emoji: string): Promise<void>;
 
   getHistory(): Promise<HistoryEntry[]>;
@@ -75,9 +87,11 @@ export function deviceTimeZone(): string {
 export function makePrompt(
   id: string,
   date: string,
+  kind: ItemKind,
   question: string,
   category: string,
+  options: DailyPrompt['options'],
   source: DailyPrompt['source'],
 ): DailyPrompt {
-  return { id, date, question, category, source };
+  return { id, date, kind, question, category, options, source };
 }

@@ -70,7 +70,14 @@ for (const code of CODES.filter((c) => c !== 'fr')) {
   if (hits.length) fail(`${code} : français résiduel → ${hits.join(', ')}`);
 }
 
-// Les banques de questions: 7 langues, 20 + 10 chacune.
+// La banque: 7 langues × 2 modes × 3 types, avec les comptes attendus et la
+// forme d'`options` propre à chaque type. Le CHECK `daily_prompts_options_shape`
+// refuserait un débat sans pôles à l'insertion — autant l'attraper ici.
+const ATTENDU = {
+  couple: { question: 20, debate: 12, challenge: 12 },
+  friends: { question: 10, debate: 8, challenge: 8 },
+};
+
 const q = readFileSync(`${REPO}/src/lib/i18n/questions.ts`, 'utf8');
 for (const code of CODES) {
   const bloc = q.split(new RegExp(`\\n  ${code}: \\{`))[1];
@@ -78,9 +85,35 @@ for (const code of CODES) {
     fail(`questions.ts : ${code} absent`);
     continue;
   }
-  const tronque = bloc.split(/\n  [a-z]{2}: \{/)[0];
-  const n = (tronque.match(/\{ question:/g) || []).length;
-  if (n !== 30) fail(`questions.ts : ${code} a ${n} questions au lieu de 30`);
+  const langue = bloc.split(/\n  [a-z]{2}: \{/)[0];
+  const resume = [];
+  for (const [mode, types] of Object.entries(ATTENDU)) {
+    const bModes = langue.split(new RegExp(`\\n    ${mode}: \\{`))[1];
+    if (!bModes) {
+      fail(`questions.ts : ${code}.${mode} absent`);
+      continue;
+    }
+    const bMode = bModes.split(/\n    (?:couple|friends): \{/)[0];
+    for (const [kind, attendu] of Object.entries(types)) {
+      const bKinds = bMode.split(new RegExp(`\\n      ${kind}: \\[`))[1];
+      const bKind = bKinds ? bKinds.split(/\n      \],/)[0] : '';
+      const items = bKind.match(/\{ question:/g) || [];
+      if (items.length !== attendu) {
+        fail(`questions.ts : ${code}.${mode}.${kind} a ${items.length} items au lieu de ${attendu}`);
+      }
+      // Un débat sans ses deux pôles, ou un défi sans durée, casse à l'insertion.
+      if (kind === 'debate') {
+        const avecPoles = (bKind.match(/options: \{ low:/g) || []).length;
+        if (avecPoles !== items.length) fail(`questions.ts : ${code}.${mode}.debate — ${items.length - avecPoles} item(s) sans pôles`);
+      }
+      if (kind === 'challenge') {
+        const avecDuree = (bKind.match(/options: \{ durationMin: \d+ \}/g) || []).length;
+        if (avecDuree !== items.length) fail(`questions.ts : ${code}.${mode}.challenge — ${items.length - avecDuree} item(s) sans durée`);
+      }
+      resume.push(`${kind[0]}${items.length}`);
+    }
+  }
+  console.log(`  ${code} banque : ${resume.join(' ')}`);
 }
 
 console.log(problemes ? `\n${problemes} problème(s)` : '\nAucun problème.');

@@ -1,7 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { pickLibraryPrompt } from '@/lib/prompt-library';
-import type { Answer, DailyPrompt, HistoryEntry, Link, LinkMode, Profile, Session, TodayState } from '@/lib/types';
+import { ITEM_KINDS, pickLibraryDay } from '@/lib/prompt-library';
+import type {
+  Answer,
+  DailyPrompt,
+  HistoryEntry,
+  ItemKind,
+  ItemState,
+  Link,
+  Profile,
+  Session,
+  Stance,
+  TodayState,
+} from '@/lib/types';
 
 import { locale as appLocale } from '@/lib/strings';
 
@@ -126,52 +137,110 @@ function answerFor(state: DemoState, promptId: string, authorId: string): Answer
   return state.answers.find((a) => a.promptId === promptId && a.authorId === authorId) ?? null;
 }
 
-function ensurePrompt(state: DemoState, link: Link, date: string): DailyPrompt {
-  const existing = state.prompts.find((p) => p.date === date);
-  if (existing) return existing;
-  const picked = pickLibraryPrompt(link.mode, link.id, date, link.locale);
-  const prompt: DailyPrompt = {
-    id: id('prompt'),
+const KIND_ORDER: Record<ItemKind, number> = { debate: 0, question: 1, challenge: 2 };
+
+/** Les trois contenus du jour, créés une seule fois puis relus. */
+function ensureDay(state: DemoState, link: Link, date: string): DailyPrompt[] {
+  const existing = state.prompts.filter((p) => p.date === date);
+  if (existing.length >= ITEM_KINDS.length) return sortByKind(existing);
+
+  const picked = pickLibraryDay(link.mode, link.id, date, link.locale);
+  const manquants = picked.filter(({ kind }) => !existing.some((p) => p.kind === kind));
+  const crees: DailyPrompt[] = manquants.map(({ kind, item }) => ({
+    id: id('item'),
     date,
-    question: picked.question,
-    category: picked.category,
+    kind,
+    question: item.question,
+    category: item.category,
+    options:
+      kind === 'debate' && item.options && 'low' in item.options
+        ? { low: item.options.low, high: item.options.high }
+        : kind === 'challenge' && item.options && 'durationMin' in item.options
+          ? { durationMin: item.options.durationMin }
+          : null,
     source: 'library',
-  };
-  state.prompts = [...state.prompts, prompt];
-  return prompt;
+  }));
+  state.prompts = [...state.prompts, ...crees];
+  return sortByKind([...existing, ...crees]);
 }
 
-/** Give a new demo link three days of history so Souvenirs isn't empty. */
+function sortByKind(prompts: DailyPrompt[]): DailyPrompt[] {
+  return [...prompts].sort((x, y) => KIND_ORDER[x.kind] - KIND_ORDER[y.kind]);
+}
+
+/**
+ * Ce que Camille répond. Sa position sur un débat est DÉRIVÉE de la vôtre et
+ * non tirée au hasard : on obtient environ 70 % d'accord avec de vraies
+ * divergences, donc un écran de statistiques qui montre quelque chose plutôt
+ * qu'un nuage de points sans forme.
+ */
+function partnerAnswer(prompt: DailyPrompt, mine: Answer | null, index: number): Answer {
+  const ecart = [0, 0, 1, -1, 2][hashOf(prompt.id) % 5];
+  const stance =
+    prompt.kind === 'debate' && mine?.stance
+      ? (Math.min(5, Math.max(1, mine.stance + ecart)) as Stance)
+      : null;
+  return {
+    id: id('ans'),
+    promptId: prompt.id,
+    authorId: PARTNER,
+    kind: prompt.kind,
+    body: prompt.kind === 'challenge' ? null : PARTNER_REPLIES[index % PARTNER_REPLIES.length],
+    stance,
+    done: prompt.kind === 'challenge' ? hashOf(prompt.id) % 4 !== 0 : null,
+    createdAt: new Date().toISOString(),
+    reactions: [],
+  };
+}
+
+function hashOf(input: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return Math.abs(h);
+}
+
+function itemState(state: DemoState, prompt: DailyPrompt): ItemState {
+  const mine = answerFor(state, prompt.id, ME);
+  const theirs = answerFor(state, prompt.id, PARTNER);
+  return { prompt, mine, theirs, revealed: Boolean(mine && theirs) };
+}
+
+/** Sème trente jours pour que Souvenirs, la série et les statistiques aient de quoi montrer. */
 function seedHistory(state: DemoState, link: Link) {
   if (state.seeded) return;
   const mineSamples = [
     "Ce moment où on n'a rien dit pendant dix minutes et c'était très bien comme ça.",
     "J'ai besoin qu'on planifie moins et qu'on improvise plus, je crois.",
-    "Je suis fier de nous pour la façon dont on a géré la semaine dernière.",
+    'Je suis fier de nous pour la façon dont on a géré la semaine dernière.',
+    "Franchement, la soirée d'hier m'a fait plus de bien que je ne pensais.",
+    "Je crois que je n'ai pas encore vraiment digéré cette semaine, mais ça va.",
   ];
-  [3, 2, 1].forEach((n, i) => {
+
+  for (let n = 30; n >= 1; n--) {
     const date = daysAgo(n);
-    const prompt = ensurePrompt(state, link, date);
-    state.answers = [
-      ...state.answers,
-      {
+    const prompts = ensureDay(state, link, date);
+    // Un jour sur sept sans réponse: une série qui n'a jamais de trou ne
+    // ressemble à rien, et l'écran Souvenirs doit savoir le montrer.
+    if (n % 7 === 3) continue;
+
+    for (const prompt of prompts) {
+      const mine: Answer = {
         id: id('ans'),
         promptId: prompt.id,
         authorId: ME,
-        body: mineSamples[i],
+        kind: prompt.kind,
+        body: prompt.kind === 'challenge' ? null : mineSamples[(n + KIND_ORDER[prompt.kind]) % mineSamples.length],
+        stance: prompt.kind === 'debate' ? (((hashOf(prompt.id + 'me') % 5) + 1) as Stance) : null,
+        done: prompt.kind === 'challenge' ? hashOf(prompt.id + 'me') % 5 !== 0 : null,
         createdAt: new Date().toISOString(),
         reactions: [],
-      },
-      {
-        id: id('ans'),
-        promptId: prompt.id,
-        authorId: PARTNER,
-        body: PARTNER_REPLIES[i % PARTNER_REPLIES.length],
-        createdAt: new Date().toISOString(),
-        reactions: i === 0 ? ['❤️'] : [],
-      },
-    ];
-  });
+      };
+      state.answers = [...state.answers, mine, partnerAnswer(prompt, mine, n)];
+    }
+  }
   state.seeded = true;
 }
 
@@ -311,46 +380,39 @@ export const demoAdapter: DataAdapter = {
     requireSession(state);
     if (!state.link) return null;
     const date = localDate();
-    const prompt = ensurePrompt(state, state.link, date);
+    const prompts = ensureDay(state, state.link, date);
     await write(state);
-    const mine = answerFor(state, prompt.id, ME);
-    const theirs = answerFor(state, prompt.id, PARTNER);
-    return { prompt, mine, theirs, revealed: Boolean(mine && theirs) };
+    return { date, items: prompts.map((p) => itemState(state, p)) };
   },
 
-  async submitAnswer(promptId, body) {
+  async submitAnswer(promptId, input) {
     const state = await read();
     requireSession(state);
     requireLink(state);
+    const prompt = state.prompts.find((p) => p.id === promptId);
+    if (!prompt) throw new DataError('no_prompt', 'Contenu introuvable.');
+
     const existing = answerFor(state, promptId, ME);
-    const mine: Answer = existing
-      ? { ...existing, body }
-      : {
-          id: id('ans'),
-          promptId,
-          authorId: ME,
-          body,
-          createdAt: new Date().toISOString(),
-          reactions: [],
-        };
+    const mine: Answer = {
+      id: existing?.id ?? id('ans'),
+      promptId,
+      authorId: ME,
+      kind: input.kind,
+      body: input.kind === 'challenge' ? null : input.body,
+      stance: input.kind === 'debate' ? input.stance : null,
+      done: input.kind === 'challenge' ? input.done : null,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      reactions: existing?.reactions ?? [],
+    };
     let answers = existing
-      ? state.answers.map((a) => (a.id === existing.id ? mine : a))
+      ? state.answers.map((x) => (x.id === existing.id ? mine : x))
       : [...state.answers, mine];
 
-    // Scripted partner reply so the reveal can be experienced solo.
+    // Camille répond CONTENU PAR CONTENU, après vous : c'est ce qui rend la
+    // révélation par contenu visible en solo, et c'est la mécanique la plus
+    // difficile à comprendre sans la voir.
     if (!answerFor(state, promptId, PARTNER)) {
-      const index = state.prompts.findIndex((p) => p.id === promptId);
-      answers = [
-        ...answers,
-        {
-          id: id('ans'),
-          promptId,
-          authorId: PARTNER,
-          body: PARTNER_REPLIES[(index + 1) % PARTNER_REPLIES.length],
-          createdAt: new Date().toISOString(),
-          reactions: [],
-        },
-      ];
+      answers = [...answers, partnerAnswer(prompt, mine, state.prompts.indexOf(prompt))];
     }
     await write({ ...state, answers });
     return mine;
@@ -375,19 +437,19 @@ export const demoAdapter: DataAdapter = {
     const state = await read();
     if (!state.link) return [];
     const today = localDate();
-    return state.prompts
-      .filter((p) => p.date < today)
-      .sort((a, b) => (a.date < b.date ? 1 : -1))
-      .map<HistoryEntry>((prompt) => ({
-        prompt,
-        mine: answerFor(state, prompt.id, ME),
-        theirs: answerFor(state, prompt.id, PARTNER),
-      }));
+    const dates = [...new Set(state.prompts.filter((p) => p.date < today).map((p) => p.date))].sort(
+      (x, y) => (x < y ? 1 : -1),
+    );
+    return dates.map<HistoryEntry>((date) => ({
+      date,
+      items: sortByKind(state.prompts.filter((p) => p.date === date)).map((p) => itemState(state, p)),
+    }));
   },
 
   async getStreak() {
     const state = await read();
     if (!state.link) return 0;
+    // Aligné sur link_streak: AU MOINS un contenu répondu des deux côtés.
     const completed = new Set(
       state.prompts
         .filter((p) => answerFor(state, p.id, ME) && answerFor(state, p.id, PARTNER))

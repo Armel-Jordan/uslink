@@ -1,7 +1,19 @@
-import { pickLibraryPrompt } from '@/lib/prompt-library';
+import { ITEM_KINDS, pickLibraryDay } from '@/lib/prompt-library';
 import { FALLBACK_LOCALE, LOCALES, locale as appLocale, t, type Locale } from '@/lib/strings';
 import { requireSupabase } from '@/lib/supabase';
-import type { Answer, DailyPrompt, HistoryEntry, Link, LinkMode, Profile, Session, TodayState } from '@/lib/types';
+import type {
+  Answer,
+  DailyPrompt,
+  HistoryEntry,
+  ItemKind,
+  ItemState,
+  Link,
+  LinkMode,
+  Profile,
+  Session,
+  Stance,
+  TodayState,
+} from '@/lib/types';
 
 import { DataError, deviceTimeZone, type DataAdapter, type DataErrorCode } from './adapter';
 
@@ -9,7 +21,10 @@ type AnswerRow = {
   id: string;
   prompt_id: string;
   author_id: string;
-  body: string;
+  kind: string;
+  body: string | null;
+  stance: number | null;
+  done: boolean | null;
   created_at: string;
   reactions?: { emoji: string }[] | null;
 };
@@ -17,8 +32,10 @@ type AnswerRow = {
 type PromptRow = {
   id: string;
   prompt_date: string;
+  kind: string;
   question: string;
   category: string;
+  options: Record<string, unknown> | null;
   source: string;
   answers?: AnswerRow[] | null;
 };
@@ -37,15 +54,34 @@ type MyLinkRow = {
   partner_emoji: string | null;
 };
 
-const PROMPT_SELECT =
-  'id, prompt_date, question, category, source, answers(id, prompt_id, author_id, body, created_at, reactions(emoji))';
+const ITEM_COLUMNS = 'id, prompt_date, kind, question, category, options, source';
+const ANSWER_COLUMNS = 'id, prompt_id, author_id, kind, body, stance, done, created_at, reactions(emoji)';
+const PROMPT_SELECT = `${ITEM_COLUMNS}, answers(${ANSWER_COLUMNS})`;
+
+function toKind(value: string): ItemKind {
+  return value === 'debate' || value === 'challenge' ? value : 'question';
+}
+
+/** Le jsonb est fermé côté base ; on le referme côté client au même endroit. */
+function toOptions(kind: ItemKind, raw: Record<string, unknown> | null): DailyPrompt['options'] {
+  if (kind === 'debate' && raw && typeof raw.low === 'string' && typeof raw.high === 'string') {
+    return { low: raw.low, high: raw.high };
+  }
+  if (kind === 'challenge' && raw && typeof raw.duration_min === 'number') {
+    return { durationMin: raw.duration_min };
+  }
+  return null;
+}
 
 function toPrompt(row: PromptRow): DailyPrompt {
+  const kind = toKind(row.kind);
   return {
     id: row.id,
     date: row.prompt_date,
+    kind,
     question: row.question,
     category: row.category,
+    options: toOptions(kind, row.options),
     source: row.source === 'ai' ? 'ai' : 'library',
   };
 }
@@ -55,10 +91,20 @@ function toAnswer(row: AnswerRow): Answer {
     id: row.id,
     promptId: row.prompt_id,
     authorId: row.author_id,
+    kind: toKind(row.kind),
     body: row.body,
+    stance: row.stance === null ? null : (Math.min(5, Math.max(1, row.stance)) as Stance),
+    done: row.done,
     createdAt: row.created_at,
     reactions: (row.reactions ?? []).map((r) => r.emoji),
   };
+}
+
+/** Assemble un contenu et les réponses visibles. La RLS a déjà filtré. */
+function toItemState(prompt: DailyPrompt, answers: Answer[], userId: string): ItemState {
+  const mine = answers.find((a) => a.authorId === userId) ?? null;
+  const theirs = answers.find((a) => a.authorId !== userId) ?? null;
+  return { prompt, mine, theirs, revealed: Boolean(mine && theirs) };
 }
 
 function toLink(row: MyLinkRow): Link {
@@ -247,33 +293,54 @@ export const supabaseAdapter: DataAdapter = {
     // `new Date()` rendrait les deux appareils désaccordés.
     const date = link.today;
 
-    let prompt = await fetchPrompt(link.id, date);
-    if (!prompt) {
-      prompt = await generatePrompt(link, date);
+    let prompts = await fetchDay(link.id, date);
+    if (prompts.length < ITEM_KINDS.length) {
+      prompts = await openDay(link, date, prompts);
     }
 
     const { data, error } = await supabase
       .from('answers')
-      .select('id, prompt_id, author_id, body, created_at, reactions(emoji)')
-      .eq('prompt_id', prompt.id);
+      .select(ANSWER_COLUMNS)
+      .in('prompt_id', prompts.map((p) => p.id));
     if (error) throw new DataError('unknown', error.message);
-
     const answers = ((data ?? []) as AnswerRow[]).map(toAnswer);
-    const mine = answers.find((a) => a.authorId === userId) ?? null;
-    const theirs = answers.find((a) => a.authorId !== userId) ?? null;
-    return { prompt, mine, theirs, revealed: Boolean(mine && theirs) };
+
+    return {
+      date,
+      items: sortByKind(prompts).map((prompt) =>
+        toItemState(prompt, answers.filter((a) => a.promptId === prompt.id), userId),
+      ),
+    };
   },
 
-  async submitAnswer(promptId, body) {
+  async submitAnswer(promptId, input) {
     const supabase = requireSupabase();
     const userId = await currentUserId();
+    // La forme est décidée par le type : le CHECK answers_shape refuse toute
+    // combinaison impossible, et l'union AnswerInput l'interdit déjà ici.
+    // Type uniforme et non union : PostgREST n'infère pas sur une union, et
+    // c'est `answers_shape` en base qui reste l'autorité sur la forme.
+    const row: {
+      prompt_id: string;
+      author_id: string;
+      kind: ItemKind;
+      body: string | null;
+      stance: number | null;
+      done: boolean | null;
+    } =
+      input.kind === 'challenge'
+        ? { prompt_id: promptId, author_id: userId, kind: input.kind, done: input.done, body: null, stance: null }
+        : input.kind === 'debate'
+          ? { prompt_id: promptId, author_id: userId, kind: input.kind, body: input.body, stance: input.stance, done: null }
+          : { prompt_id: promptId, author_id: userId, kind: input.kind, body: input.body, stance: null, done: null };
+
     const { data, error } = await supabase
       .from('answers')
       // Pas d'`updated_at` : le défaut de colonne le pose à l'insertion et le
       // trigger answers_touch_updated_at à la mise à jour. L'envoyer depuis le
       // client laisserait écrire un horodatage arbitraire.
-      .upsert({ prompt_id: promptId, author_id: userId, body }, { onConflict: 'prompt_id,author_id' })
-      .select('id, prompt_id, author_id, body, created_at')
+      .upsert(row, { onConflict: 'prompt_id,author_id' })
+      .select('id, prompt_id, author_id, kind, body, stance, done, created_at')
       .single();
     if (error) throw new DataError('unknown', error.message);
     return toAnswer(data as AnswerRow);
@@ -311,18 +378,21 @@ export const supabaseAdapter: DataAdapter = {
       .select(PROMPT_SELECT)
       .eq('link_id', link.id)
       .lt('prompt_date', link.today)
+      .is('bundle', null)
       .order('prompt_date', { ascending: false })
-      .limit(60);
+      .limit(180);
     if (error) throw new DataError('unknown', error.message);
 
-    return ((data ?? []) as PromptRow[]).map<HistoryEntry>((row) => {
+    // Groupé par jour : une journée est l'unité de souvenir, pas un contenu.
+    const days = new Map<string, ItemState[]>();
+    for (const row of (data ?? []) as PromptRow[]) {
+      const prompt = toPrompt(row);
       const answers = (row.answers ?? []).map(toAnswer);
-      return {
-        prompt: toPrompt(row),
-        mine: answers.find((a) => a.authorId === userId) ?? null,
-        theirs: answers.find((a) => a.authorId !== userId) ?? null,
-      };
-    });
+      const list = days.get(prompt.date) ?? [];
+      list.push(toItemState(prompt, answers, userId));
+      days.set(prompt.date, list);
+    }
+    return [...days.entries()].map<HistoryEntry>(([date, items]) => ({ date, items: sortByKind2(items) }));
   },
 
   async getStreak() {
@@ -334,70 +404,84 @@ export const supabaseAdapter: DataAdapter = {
   },
 };
 
-async function fetchPrompt(linkId: string, date: string): Promise<DailyPrompt | null> {
-  const { data, error } = await requireSupabase()
-    .from('daily_prompts')
-    .select('id, prompt_date, question, category, source')
-    .eq('link_id', linkId)
-    .eq('prompt_date', date)
-    .maybeSingle();
-  if (error) throw new DataError('unknown', error.message);
-  return data ? toPrompt(data as PromptRow) : null;
-}
-
 /**
- * Doit rester AU-DESSUS du budget serveur (`timeout` x `maxRetries` du SDK
- * Anthropic dans supabase/functions/daily-prompt), sans quoi le client écrit sa
- * question de bibliothèque en premier et l'écriture `do nothing` de la fonction
- * devient un no-op : l'IA perdrait la course tous les jours, en silence.
+ * Doit rester AU-DESSUS du budget serveur (`timeout` × `maxRetries` du SDK
+ * Anthropic dans supabase/functions/daily-prompt), sans quoi le client écrit
+ * ses contenus de bibliothèque en premier et l'écriture `do nothing` de la
+ * fonction devient un no-op : l'IA perdrait la course tous les jours.
  */
 const EDGE_TIMEOUT_MS = 20_000;
 
+const KIND_ORDER: Record<ItemKind, number> = { debate: 0, question: 1, challenge: 2 };
+
+/** Débat, puis question, puis défi : on débat, on répond, on relève le soir. */
+function sortByKind(prompts: DailyPrompt[]): DailyPrompt[] {
+  return [...prompts].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+}
+
+function sortByKind2(items: ItemState[]): ItemState[] {
+  return [...items].sort((a, b) => KIND_ORDER[a.prompt.kind] - KIND_ORDER[b.prompt.kind]);
+}
+
+async function fetchDay(linkId: string, date: string): Promise<DailyPrompt[]> {
+  const { data, error } = await requireSupabase()
+    .from('daily_prompts')
+    .select(ITEM_COLUMNS)
+    .eq('link_id', linkId)
+    .eq('prompt_date', date)
+    .is('bundle', null);
+  if (error) throw new DataError('unknown', error.message);
+  return ((data ?? []) as PromptRow[]).map(toPrompt);
+}
+
 /**
- * Ask the Edge Function for an AI-personalised question. If it is not deployed
- * or Claude is unavailable, fall back to the local library so the daily ritual
- * never breaks — the user only sees a different `source` badge.
+ * Ouvre la journée : demande les contenus personnalisés à l'Edge Function, et
+ * complète depuis la banque locale ce qui manque encore. Écrit toujours en
+ * `on conflict do nothing` — daily_prompts n'a pas de policy UPDATE, et le
+ * premier arrivé doit gagner pour que le texte ne change pas sous les yeux de
+ * quelqu'un qui a déjà répondu.
  */
-async function generatePrompt(link: Link, date: string): Promise<DailyPrompt> {
+async function openDay(link: Link, date: string, existing: DailyPrompt[]): Promise<DailyPrompt[]> {
   const supabase = requireSupabase();
-  // `invoke` ne lève pas : un timeout revient en `{ error }`. Le catch ne couvre
-  // donc que l'imprévu, et surtout pas `fetchPrompt`, dont l'erreur doit remonter.
   let invoked = false;
   try {
-    // Pas de `date` dans le corps : la fonction la dérive elle-même du fuseau
-    // du lien. Une date choisie par le client rate le cache à chaque nouvelle
-    // valeur et facture un appel Anthropic pour chacune.
     const { data, error } = await supabase.functions.invoke('daily-prompt', {
       body: { linkId: link.id },
       timeout: EDGE_TIMEOUT_MS,
     });
-    invoked = !error && Boolean(data?.prompt);
+    invoked = !error && Boolean(data?.items);
   } catch {
-    // fall through to the library
-  }
-  if (invoked) {
-    const fresh = await fetchPrompt(link.id, date);
-    if (fresh) return fresh;
+    // on complète depuis la banque locale
   }
 
-  // `on conflict do nothing` et non un UPDATE : daily_prompts n'a pas de policy
-  // UPDATE, donc un upsert en conflit échouerait en 42501 — c'est le seul
-  // chemin qui laissait réellement une journée sans question. Premier arrivé
-  // gagne, et on relit ce qui est en base plutôt que ce qu'on voulait écrire.
-  const picked = pickLibraryPrompt(link.mode, link.id, date, link.locale);
-  const { error } = await supabase.from('daily_prompts').upsert(
-    {
+  const after = invoked ? await fetchDay(link.id, date) : existing;
+  const manquants = ITEM_KINDS.filter((kind) => !after.some((p) => p.kind === kind));
+  if (manquants.length === 0) return after;
+
+  const picked = pickLibraryDay(link.mode, link.id, date, link.locale);
+  const rows = picked
+    .filter(({ kind }) => manquants.includes(kind))
+    .map(({ kind, item }) => ({
       link_id: link.id,
       prompt_date: date,
-      question: picked.question,
-      category: picked.category,
-      source: 'library',
-    },
-    { onConflict: 'link_id,prompt_date', ignoreDuplicates: true },
-  );
+      kind,
+      question: item.question,
+      category: item.category,
+      options:
+        kind === 'debate' && item.options && 'low' in item.options
+          ? { low: item.options.low, high: item.options.high }
+          : kind === 'challenge' && item.options && 'durationMin' in item.options
+            ? { duration_min: item.options.durationMin }
+            : {},
+      source: 'library' as const,
+    }));
+
+  const { error } = await supabase
+    .from('daily_prompts')
+    .upsert(rows, { onConflict: 'link_id,prompt_date,kind', ignoreDuplicates: true });
   if (error) throw new DataError('unknown', error.message);
 
-  const stored = await fetchPrompt(link.id, date);
-  if (!stored) throw new DataError('no_prompt', t.common.noPrompt);
-  return stored;
+  const final = await fetchDay(link.id, date);
+  if (final.length === 0) throw new DataError('no_prompt', t.common.noPrompt);
+  return final;
 }

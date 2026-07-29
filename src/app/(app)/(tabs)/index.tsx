@@ -1,43 +1,43 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, AppState, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 
-import { AnswerBubble } from '@/components/answer-bubble';
+import { ItemCard } from '@/components/item-card';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Field } from '@/components/ui/field';
 import { Screen } from '@/components/ui/screen';
-import { Radius, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { data } from '@/lib/data';
 import { useSession } from '@/lib/session';
 import { t } from '@/lib/strings';
-import type { TodayState } from '@/lib/types';
+import type { AnswerInput, TodayState } from '@/lib/types';
 
 export default function TodayScreen() {
   const theme = useTheme();
   const { profile, link } = useSession();
   const [today, setToday] = useState<TodayState | null>(null);
   const [streak, setStreak] = useState(0);
-  const [draft, setDraft] = useState('');
-  const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [sending, setSending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [next, nextStreak] = await Promise.all([data.getToday(), data.getStreak()]);
-      setToday(next);
-      setStreak(nextStreak);
-      if (next?.mine && !editing) setDraft(next.mine.body);
+      // La journée seule d'abord : la série est décorative, son échec ne doit
+      // pas emporter la question du jour avec lui.
+      setToday(await data.getToday());
     } catch (e) {
       setError(e instanceof Error ? e.message : t.common.error);
     }
-  }, [editing]);
+    data
+      .getStreak()
+      .then(setStreak)
+      .catch(() => setStreak(0));
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -48,9 +48,7 @@ export default function TodayScreen() {
       })();
 
       // `useFocusEffect` ne se réarme pas au retour de veille : une app laissée
-      // ouverte traverserait la bascule de journée en affichant la question
-      // d'hier. Le jour vient du serveur, donc seul un rechargement le voit
-      // changer.
+      // ouverte traverserait la bascule de journée en affichant celle d'hier.
       const sub = AppState.addEventListener('change', (next) => {
         if (next === 'active' && active) void load();
       });
@@ -68,18 +66,16 @@ export default function TodayScreen() {
     setRefreshing(false);
   };
 
-  const send = async () => {
-    if (!today || !draft.trim()) return;
-    setSending(true);
+  const submit = async (promptId: string, input: AnswerInput) => {
+    setSending(promptId);
     setError(null);
     try {
-      await data.submitAnswer(today.prompt.id, draft.trim());
-      setEditing(false);
+      await data.submitAnswer(promptId, input);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : t.common.error);
     } finally {
-      setSending(false);
+      setSending(null);
     }
   };
 
@@ -88,7 +84,7 @@ export default function TodayScreen() {
       await data.toggleReaction(answerId, emoji);
       await load();
     } catch {
-      // A failed reaction is not worth interrupting the moment for.
+      // Une réaction ratée ne vaut pas la peine d'interrompre le moment.
     }
   };
 
@@ -107,11 +103,13 @@ export default function TodayScreen() {
 
   const partnerName = link?.partner?.displayName ?? '…';
   const partnerEmoji = link?.partner?.avatarEmoji ?? '🌙';
+  const items = today?.items ?? [];
+  const allAnswered = items.length > 0 && items.every((i) => i.mine);
 
   return (
     <Screen refreshing={refreshing} onRefresh={onRefresh} withTabInset>
-      <View style={styles.header}>
-        <View style={styles.headerText}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={styles.header}>
           <ThemedText type="smallBold" themeColor="textSecondary">
             {t.today.greeting(profile?.displayName ?? '')}
           </ThemedText>
@@ -119,107 +117,46 @@ export default function TodayScreen() {
             {streak > 0 ? `🔥 ${t.today.streak(streak)}` : t.today.noStreak}
           </ThemedText>
         </View>
-      </View>
 
-      {today ? (
-        <>
-          <Card style={[styles.questionCard, { borderColor: theme.accent }]}>
-            <View style={styles.badgeRow}>
-              <View style={[styles.badge, { backgroundColor: theme.accentSoft }]}>
-                <ThemedText type="small" style={{ color: theme.accent }}>
-                  {today.prompt.category}
-                </ThemedText>
-              </View>
-              <ThemedText type="small" themeColor="textSecondary">
-                {today.prompt.source === 'ai' ? t.today.aiHint : t.today.libraryHint}
+        {items.length > 0 ? (
+          <View style={styles.items}>
+            {items.map((item) => (
+              <ItemCard
+                // La clé porte l'état de réponse : sans elle, le brouillon
+                // local d'une carte survivrait à sa propre soumission.
+                key={`${item.prompt.id}:${item.mine ? 'a' : 'n'}:${item.theirs ? 'r' : 'w'}`}
+                item={item}
+                partnerName={partnerName}
+                partnerEmoji={partnerEmoji}
+                myEmoji={profile?.avatarEmoji ?? '☀️'}
+                sending={sending === item.prompt.id}
+                onSubmit={(input) => void submit(item.prompt.id, input)}
+                onReact={react}
+              />
+            ))}
+            {allAnswered ? (
+              <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
+                {t.today.allAnswered}
               </ThemedText>
-            </View>
-            <ThemedText style={styles.question}>{today.prompt.question}</ThemedText>
+            ) : null}
+          </View>
+        ) : (
+          <Card>
+            <ThemedText type="small" themeColor="textSecondary">
+              {t.today.alone}
+            </ThemedText>
           </Card>
+        )}
 
-          {!today.mine || editing ? (
-            <Card>
-              <Field
-                label={t.today.yourAnswer}
-                placeholder={t.today.placeholder}
-                value={draft}
-                onChangeText={setDraft}
-                multiline
-              />
-              <Button
-                label={editing ? t.today.save : t.today.send}
-                onPress={send}
-                loading={sending}
-                disabled={!draft.trim()}
-              />
-            </Card>
-          ) : null}
-
-          {today.mine && !editing ? (
-            <View style={styles.answers}>
-              {today.revealed ? (
-                <ThemedText type="smallBold" themeColor="textSecondary">
-                  {t.today.revealed}
-                </ThemedText>
-              ) : null}
-
-              <AnswerBubble
-                author={t.today.you}
-                emoji={profile?.avatarEmoji ?? '☀️'}
-                answer={today.mine}
-                voice="mine"
-              />
-
-              {today.revealed && today.theirs ? (
-                <AnswerBubble
-                  author={partnerName}
-                  emoji={partnerEmoji}
-                  answer={today.theirs}
-                  voice="theirs"
-                  onReact={(emoji) => void react(today.theirs!.id, emoji)}
-                />
-              ) : (
-                <Card style={styles.waiting}>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    ⏳ {t.today.waitingPartner(partnerName)}
-                  </ThemedText>
-                </Card>
-              )}
-
-              {/* Une fois que le partenaire a répondu, la policy answers_update
-                  gèle la ligne : proposer « Modifier » ne produirait qu'une
-                  erreur RLS brute. Le gel est la raison d'être du produit, il
-                  se dit plutôt qu'il ne se cache. */}
-              {today.theirs ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  {t.today.frozen(partnerName)}
-                </ThemedText>
-              ) : (
-                <Button
-                  label={t.today.edit}
-                  variant="ghost"
-                  onPress={() => {
-                    setDraft(today.mine?.body ?? '');
-                    setEditing(true);
-                  }}
-                />
-              )}
-            </View>
-          ) : null}
-        </>
-      ) : (
-        <Card>
-          <ThemedText type="small" themeColor="textSecondary">
-            {t.today.alone}
-          </ThemedText>
-        </Card>
-      )}
-
-      {error ? (
-        <ThemedText type="small" themeColor="danger">
-          {error}
-        </ThemedText>
-      ) : null}
+        {error ? (
+          <View style={styles.error}>
+            <ThemedText type="small" themeColor="danger">
+              {error}
+            </ThemedText>
+            <Button label={t.common.retry} variant="ghost" onPress={() => void load()} />
+          </View>
+        ) : null}
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
@@ -232,36 +169,17 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerText: {
     gap: Spacing.half,
+    marginBottom: Spacing.three,
   },
-  questionCard: {
-    borderWidth: 1,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-  },
-  badge: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-    borderRadius: Radius.pill,
-  },
-  question: {
-    fontSize: 24,
-    lineHeight: 32,
-    fontWeight: '600',
-  },
-  answers: {
+  items: {
     gap: Spacing.three,
   },
-  waiting: {
-    padding: Spacing.three,
+  center: {
+    textAlign: 'center',
+  },
+  error: {
+    gap: Spacing.two,
+    marginTop: Spacing.three,
   },
 });

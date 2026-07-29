@@ -139,7 +139,7 @@ insert into _fx select 'P1', id from public.daily_prompts
     and prompt_date = (select v::date from _fxt where k = 'TODAY');
 
 insert into public.answers (prompt_id, author_id, body)
-select v, '11111111-1111-1111-1111-111111111111', 'Réponse d''Alice' from _fx where k = 'P1';
+select v, '11111111-1111-1111-1111-111111111111', 'Réponse d''Alice, assez longue pour compter.' from _fx where k = 'P1';
 insert into _fx select 'A_ALICE', id from public.answers
   where prompt_id = (select v from _fx where k = 'P1')
     and author_id = '11111111-1111-1111-1111-111111111111';
@@ -185,7 +185,7 @@ select pg_temp.t_rows(
 select pg_temp.t_allow(
   'Bob peut répondre à la question de son lien',
   'insert into public.answers (prompt_id, author_id, body)
-   select v, ''22222222-2222-2222-2222-222222222222'', ''Réponse de Bob'' from _fx where k = ''P1''');
+   select v, ''22222222-2222-2222-2222-222222222222'', ''Réponse de Bob, assez longue pour compter.'' from _fx where k = ''P1''');
 
 select pg_temp.t_rows(
   'RÉVÉLATION: après avoir répondu, Bob voit les deux réponses',
@@ -208,7 +208,7 @@ select pg_temp.t_rows(
 select pg_temp.t_raise(
   'Dave ne peut pas répondre sur le prompt d''un autre lien',
   'insert into public.answers (prompt_id, author_id, body)
-   select v, ''44444444-4444-4444-4444-444444444444'', ''intrusion'' from _fx where k = ''P1''',
+   select v, ''44444444-4444-4444-4444-444444444444'', ''intrusion, avec assez de caractères.'' from _fx where k = ''P1''',
   'row-level security');
 
 select pg_temp.as_user('33333333-3333-3333-3333-333333333333');
@@ -228,7 +228,7 @@ select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 
 select pg_temp.t_touches(
   'Bob peut corriger sa réponse tant que le partenaire n''a pas répondu',
-  'update public.answers set body = ''Réponse corrigée''
+  'update public.answers set body = ''Réponse corrigée, toujours assez longue.''
      where author_id = ''22222222-2222-2222-2222-222222222222''
        and prompt_id = (select v from _fx where k = ''P2'')', 1);
 
@@ -248,21 +248,21 @@ select pg_temp.t_raise(
 
 select pg_temp.t_touches(
   'Bob ne peut pas modifier la réponse d''Alice',
-  'update public.answers set body = ''détourné''
+  'update public.answers set body = ''détourné, avec assez de caractères.''
      where author_id = ''11111111-1111-1111-1111-111111111111''', 0);
 
 -- ============================== DÉFAUT 3 (1re moitié) — FENÊTRE ET GEL
 
 select pg_temp.t_touches(
   'DÉFAUT 3: une fois le partenaire ayant répondu, ma réponse est GELÉE',
-  'update public.answers set body = ''réécrit après avoir lu l''''autre''
+  'update public.answers set body = ''réécrit après avoir lu la réponse de l''''autre''
      where author_id = ''22222222-2222-2222-2222-222222222222''
        and prompt_id = (select v from _fx where k = ''P1'')', 0);
 
 select pg_temp.t_raise(
   'DÉFAUT 3: répondre à une vieille question ne déverrouille plus l''archive',
   'insert into public.answers (prompt_id, author_id, body)
-   select v, ''22222222-2222-2222-2222-222222222222'', ''déverrouillage rétroactif''
+   select v, ''22222222-2222-2222-2222-222222222222'', ''déverrouillage rétroactif de toute l''''archive''
    from _fx where k = ''P3''',
   'row-level security');
 
@@ -270,6 +270,85 @@ select pg_temp.t_rows(
   'DÉFAUT 3: la vieille réponse d''Alice reste invisible',
   'select 1 from public.answers where prompt_id = (select v from _fx where k = ''P3'')', 0);
 
+-- La substance. Alice répond « . » à P2 : la ligne existe, mais ce n'est pas
+-- répondre. Et comme Bob a déjà répondu, elle est GELÉE avec son point —
+-- c'est tout le prix de la triche, et il est définitif.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select pg_temp.t_allow(
+  'Une réponse d''un caractère est acceptée en écriture',
+  'insert into public.answers (prompt_id, author_id, body)
+   select v, ''11111111-1111-1111-1111-111111111111'', ''.'' from _fx where k = ''P2''');
+select pg_temp.t_rows(
+  'DÉFAUT 3: « . » ne déverrouille PAS la réponse du partenaire',
+  'select 1 from public.answers
+     where prompt_id = (select v from _fx where k = ''P2'')
+       and author_id = ''22222222-2222-2222-2222-222222222222''', 0);
+select pg_temp.t_touches(
+  'DÉFAUT 3: et on ne peut plus se rattraper — la réponse est gelée',
+  'update public.answers set body = ''je rallonge après coup pour tricher''
+     where author_id = ''11111111-1111-1111-1111-111111111111''
+       and prompt_id = (select v from _fx where k = ''P2'')', 0);
+
+-- Le seuil ne dépend pas du type : un défi se valide d'un tap, sans texte.
+reset role;
+insert into public.daily_prompts (link_id, prompt_date, kind, question, category, options, source)
+select v, (select v::date from _fxt where k = 'TODAY'), 'challenge',
+       'Envoie-lui une photo de ce que tu vois.', 'quotidien',
+       '{"duration_min": 2}'::jsonb, 'library'
+from _fx where k = 'L1';
+insert into _fx select 'P_DEFI', id from public.daily_prompts
+  where link_id = (select v from _fx where k = 'L1') and kind = 'challenge';
+insert into public.answers (prompt_id, kind, author_id, done)
+select v, 'challenge', '11111111-1111-1111-1111-111111111111', true from _fx where k = 'P_DEFI';
+set local role authenticated;
+
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select pg_temp.t_rows(
+  'Un défi non relevé ne montre pas celui de l''autre',
+  'select 1 from public.answers where prompt_id = (select v from _fx where k = ''P_DEFI'')', 0);
+-- Ces deux refus se testent AVANT la vraie réponse de Bob : l'unicité
+-- (prompt_id, author_id) lèverait sinon en premier et masquerait la contrainte
+-- qu'on veut éprouver.
+select pg_temp.t_raise(
+  'Un défi ne peut pas porter de texte',
+  'insert into public.answers (prompt_id, kind, author_id, done, body)
+   select v, ''challenge'', ''22222222-2222-2222-2222-222222222222'', true, ''commentaire interdit''
+   from _fx where k = ''P_DEFI''',
+  'answers_shape');
+
+-- Le type de la réponse est celui du contenu, garanti par la clé composite.
+select pg_temp.t_raise(
+  'Une réponse ne peut pas mentir sur son type',
+  'insert into public.answers (prompt_id, kind, author_id, stance, body)
+   select v, ''debate'', ''22222222-2222-2222-2222-222222222222'', 3, ''prétendre que c''''est un débat''
+   from _fx where k = ''P_DEFI''',
+  'answers_prompt_fk');
+
+select pg_temp.t_allow(
+  'Relever un défi ne demande aucun texte',
+  'insert into public.answers (prompt_id, kind, author_id, done)
+   select v, ''challenge'', ''22222222-2222-2222-2222-222222222222'', true from _fx where k = ''P_DEFI''');
+select pg_temp.t_rows(
+  'Un défi relevé révèle celui de l''autre',
+  'select 1 from public.answers where prompt_id = (select v from _fx where k = ''P_DEFI'')', 2);
+
+-- Le jsonb est fermé: une clé surnuméraire est refusée.
+reset role;
+select pg_temp.t_raise(
+  'Le payload d''un contenu refuse toute clé surnuméraire',
+  'insert into public.daily_prompts (link_id, prompt_date, kind, question, category, options, source)
+   select v, (select v::date from _fxt where k = ''TODAY''), ''debate'', ''Axe de test'', ''test'',
+          ''{"low":"a","high":"b","piege":"x"}''::jsonb, ''library'' from _fx where k = ''L1''',
+  'daily_prompts_options_shape');
+select pg_temp.t_raise(
+  'Un débat sans ses deux pôles est refusé',
+  'insert into public.daily_prompts (link_id, prompt_date, kind, question, category, options, source)
+   select v, (select v::date from _fxt where k = ''TODAY'') - 1, ''debate'', ''Axe de test'', ''test'',
+          ''{"low":"a"}''::jsonb, ''library'' from _fx where k = ''L1''',
+  'daily_prompts_options_shape');
+set local role authenticated;
+
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 select pg_temp.t_raise(
   'Un membre ne peut pas fabriquer une question hors de la fenêtre du jour',
   'insert into public.daily_prompts (link_id, prompt_date, question, category, source)
@@ -420,7 +499,7 @@ select pg_temp.t_rows(
   'select 1 from public.answers where author_id = ''11111111-1111-1111-1111-111111111111''', 0);
 select pg_temp.t_touches(
   'DÉFAUT 2: un ex-membre ne peut plus réécrire son ancienne réponse',
-  'update public.answers set body = ''réécrit après le départ''
+  'update public.answers set body = ''réécrit après le départ, assez long.''
      where author_id = ''22222222-2222-2222-2222-222222222222''', 0);
 select pg_temp.t_raise(
   'DÉFAUT 2: un ex-membre ne peut plus réagir dans le fil de son ex-partenaire',

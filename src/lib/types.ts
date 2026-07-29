@@ -36,12 +36,27 @@ export type Link = {
   locale: Locale;
 };
 
+/**
+ * Trois types, une seule primitive. Un débat porte une position mesurable —
+ * c'est ce qui rend le « vous êtes d'accord à 72 % » calculable ailleurs qu'à
+ * coups d'appels au modèle. Un défi se relève d'un geste et ne porte aucun
+ * texte : sinon un appui sur « fait » déverrouillerait le commentaire écrit du
+ * partenaire.
+ */
+export type ItemKind = 'question' | 'debate' | 'challenge';
+
+/** Position sur l'échelle d'un débat : 1 = pôle bas, 5 = pôle haut. */
+export type Stance = 1 | 2 | 3 | 4 | 5;
+
 export type DailyPrompt = {
   id: string;
   /** ISO date, `YYYY-MM-DD`, in the link's local day. */
   date: string;
+  kind: ItemKind;
   question: string;
   category: string;
+  /** Les deux pôles d'un débat, ou la durée indicative d'un défi. */
+  options: { low: string; high: string } | { durationMin: number } | null;
   source: PromptSource;
 };
 
@@ -49,26 +64,42 @@ export type Answer = {
   id: string;
   promptId: string;
   authorId: string;
-  body: string;
+  kind: ItemKind;
+  /** Null pour un défi, qui ne porte aucun texte. */
+  body: string | null;
+  stance: Stance | null;
+  done: boolean | null;
   createdAt: string;
   reactions: string[];
 };
 
+/** Ce qu'un écran envoie pour répondre. Le type interdit les combinaisons impossibles. */
+export type AnswerInput =
+  | { kind: 'question'; body: string }
+  | { kind: 'debate'; stance: Stance; body: string }
+  | { kind: 'challenge'; done: boolean };
+
 /**
- * The whole state of the Today screen. `revealed` is true only when both
- * people have answered — that gate is the core of the product.
+ * Un contenu et son état. `revealed` est vrai seulement quand les deux ont
+ * répondu — c'est le cœur du produit, et la révélation est PAR CONTENU : on
+ * voit son débat dès qu'on a débattu, sans attendre le défi du soir.
  */
-export type TodayState = {
+export type ItemState = {
   prompt: DailyPrompt;
   mine: Answer | null;
   theirs: Answer | null;
   revealed: boolean;
 };
 
+export type TodayState = {
+  date: string;
+  /** Ordonnés débat → question → défi. Trois au maximum, moins si la journée s'ouvre mal. */
+  items: ItemState[];
+};
+
 export type HistoryEntry = {
-  prompt: DailyPrompt;
-  mine: Answer | null;
-  theirs: Answer | null;
+  date: string;
+  items: ItemState[];
 };
 
 export type Session = {
