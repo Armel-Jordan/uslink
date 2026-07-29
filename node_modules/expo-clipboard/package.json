@@ -1,0 +1,45 @@
+{
+  "name": "expo-clipboard",
+  "version": "57.0.1",
+  "description": "Provides an interface for getting and setting Clipboard content on Android, iOS, macOS and Web.",
+  "main": "build/Clipboard.js",
+  "types": "build/Clipboard.d.ts",
+  "keywords": [
+    "react-native",
+    "expo",
+    "expo-clipboard"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/expo/expo.git",
+    "directory": "packages/expo-clipboard"
+  },
+  "bugs": {
+    "url": "https://github.com/expo/expo/issues"
+  },
+  "author": "650 Industries, Inc.",
+  "license": "MIT",
+  "homepage": "https://docs.expo.dev/versions/latest/sdk/clipboard",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "expo-module-scripts": "56.0.3",
+    "expo": "57.0.6"
+  },
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  },
+  "jest": {
+    "preset": "expo-module-scripts/universal"
+  },
+  "gitHead": "b9503d06b8e130abfca1bc16f671dbefb41ad709",
+  "scripts": {
+    "build": "expo-module build",
+    "clean": "expo-module clean",
+    "lint": "expo-module lint",
+    "test": "expo-module test",
+    "expo-module": "expo-module"
+  }
+}
