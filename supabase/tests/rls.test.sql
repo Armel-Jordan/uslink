@@ -339,6 +339,28 @@ select pg_temp.as_user('33333333-3333-3333-3333-333333333333');
 select pg_temp.t_raise('Sans lien, on ne choisit aucun fuseau',
   'select public.set_link_time_zone(''Europe/Paris'')', 'no_link');
 
+-- ============================================ LA LANGUE DU COUPLE
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select pg_temp.t_allow('Un membre peut choisir la langue du lien',
+  'select public.set_link_locale(''ja'')');
+select pg_temp.t_ok('La langue choisie est bien celle du lien',
+  (select locale = 'ja' from public.links where id = (select v from _fx where k = 'L1')));
+select pg_temp.t_raise('Une langue non servie est refusée',
+  'select public.set_link_locale(''klingon'')', 'invalid_locale');
+select pg_temp.t_ok('Un refus ne change pas la langue en place',
+  (select locale = 'ja' from public.links where id = (select v from _fx where k = 'L1')));
+
+select pg_temp.as_user('33333333-3333-3333-3333-333333333333');
+select pg_temp.t_raise('Sans lien, on ne choisit aucune langue',
+  'select public.set_link_locale(''es'')', 'no_link');
+
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select pg_temp.t_ok('my_link() porte la langue, le jour et le fuseau',
+  (select count(*) = 1 from public.my_link()
+    where locale = 'ja' and time_zone is not null and today is not null));
+select pg_temp.t_allow('Le lien revient au français', 'select public.set_link_locale(''fr'')');
+
 -- ================================================== DÉFAUT 7 — APPAIRAGE
 
 select pg_temp.as_user('33333333-3333-3333-3333-333333333333');

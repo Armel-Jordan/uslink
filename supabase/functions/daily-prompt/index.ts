@@ -1,10 +1,13 @@
 // Supabase Edge Function (Deno): generate the day's question for one link.
 //
 // The AI works behind the scenes — it never talks to the user. It sees only
-// coarse context (mode, first names, how long the two have been linked, and the
-// last questions asked so it does not repeat itself) and returns one question.
-// If Claude is unavailable or declines, we fall back to a static library so the
-// daily ritual never breaks.
+// coarse context (mode, locale, how long the two have been linked, and the last
+// questions asked so it does not repeat itself) and returns one question. No
+// names, no e-mails, no answer text.
+//
+// If Claude is unavailable or declines, this function writes nothing and says
+// so; the client then falls back to its own localised question bank
+// (src/lib/prompt-library.ts). One bank, in the reader's language.
 //
 // Deploy:
 //   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
@@ -40,18 +43,22 @@ const QUESTION_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const FALLBACK: { question: string; category: string }[] = [
-  { question: "Quel petit geste de ma part t'a marqué cette semaine ?", category: 'gratitude' },
-  { question: 'À quel moment t’es-tu senti(e) le plus proche de moi récemment ?', category: 'intimité' },
-  { question: 'De quoi as-tu besoin de moi cette semaine, concrètement ?', category: 'besoins' },
-  { question: 'Quel souvenir de nous te revient le plus souvent ?', category: 'souvenirs' },
-  { question: 'Qu’est-ce qui t’occupe l’esprit en ce moment, même si c’est flou ?', category: 'profondeur' },
-];
+const LANGUAGES: Record<string, string> = {
+  fr: 'français',
+  es: 'espagnol (castillan)',
+  pt: 'portugais du Brésil',
+  it: 'italien',
+  ar: 'arabe standard moderne',
+  zh: 'chinois simplifié',
+  ja: 'japonais',
+};
 
 const SYSTEM_PROMPT = `Tu écris la question quotidienne d'UsLink, une application où deux personnes reliées répondent chacune à la même question, puis découvrent la réponse de l'autre.
 
 Règles:
-- Une seule question, en français, tutoiement, 12 à 25 mots.
+- Une seule question, 12 à 25 mots, dans la LANGUE DEMANDÉE par le message — jamais dans une autre, même si le contexte fourni est écrit autrement. La catégorie aussi.
+- Écris comme un locuteur natif de cette langue pour son propre marché : une question qui sonne traduite casse l'intimité du moment. Registre tutoyant ou son équivalent naturel dans la langue.
+- Ne suppose ni le genre ni l'orientation des deux personnes. Dans les langues à accord grammatical, choisis des tournures qui n'en imposent aucun.
 - Ouverte: impossible d'y répondre par oui/non. Jamais deux questions en une.
 - Concrète et ancrée dans le vécu récent plutôt qu'abstraite ou philosophique.
 - Ton chaleureux et simple. Évite le jargon de développement personnel, les métaphores lourdes et les formules toutes faites.
@@ -62,7 +69,7 @@ Règles:
 
 type LinkContext = {
   mode: string;
-  names: string[];
+  locale: string;
   daysLinked: number;
   recent: { question: string; category: string }[];
 };
@@ -116,7 +123,15 @@ Deno.serve(async (req: Request) => {
     }
 
     const context = await loadContext(admin, linkId);
-    const generated = (await generateWithClaude(context)) ?? pickFallback(linkId, date);
+    const generated = await generateWithClaude(context);
+
+    // Pas de banque de repli ici. Le client en a une, localisée
+    // (src/lib/prompt-library.ts), et c'est elle que AGENTS.md désigne : la
+    // dupliquer côté serveur produirait une question française sous une
+    // interface arabe, et deux banques à tenir en phase.
+    if (!generated) {
+      return json({ prompt: null, reason: 'ai_unavailable' });
+    }
 
     // `do nothing` et non `do update`: un second écrivain écrasait
     // question/category en gardant le même id, ce qui change le texte sous les
@@ -162,9 +177,11 @@ async function loadContext(
   admin: ReturnType<typeof createClient>,
   linkId: string,
 ): Promise<LinkContext> {
-  const [link, members, recent] = await Promise.all([
-    admin.from('links').select('mode, created_at').eq('id', linkId).maybeSingle(),
-    admin.from('link_members').select('user_id, profiles(display_name)').eq('link_id', linkId),
+  // Les prénoms ne sont plus lus. Ils partaient vers l'API sans contrepartie
+  // de qualité : le modèle n'écrit pas une meilleure question parce qu'il sait
+  // que vous vous appelez Camille.
+  const [link, recent] = await Promise.all([
+    admin.from('links').select('mode, created_at, locale').eq('id', linkId).maybeSingle(),
     admin
       .from('daily_prompts')
       .select('question, category')
@@ -176,13 +193,9 @@ async function loadContext(
   const createdAt = link.data?.created_at ? new Date(link.data.created_at as string) : new Date();
   const daysLinked = Math.max(0, Math.floor((Date.now() - createdAt.getTime()) / 86_400_000));
 
-  const names = ((members.data ?? []) as { profiles: { display_name: string } | null }[])
-    .map((row) => row.profiles?.display_name)
-    .filter((name): name is string => Boolean(name));
-
   return {
     mode: (link.data?.mode as string) ?? 'couple',
-    names,
+    locale: (link.data?.locale as string) ?? 'fr',
     daysLinked,
     recent: (recent.data ?? []) as { question: string; category: string }[],
   };
@@ -208,9 +221,11 @@ async function generateWithClaude(
     ? context.recent.map((r) => `- (${r.category}) ${r.question}`).join('\n')
     : '- aucune question posée pour le moment';
 
+  const language = LANGUAGES[context.locale] ?? LANGUAGES.fr;
+
   const userPrompt = [
+    `LANGUE DEMANDÉE: ${language} (code ${context.locale}). Écris la question ET la catégorie dans cette langue.`,
     `Mode: ${context.mode}`,
-    `Prénoms: ${context.names.length ? context.names.join(' et ') : 'inconnus'}`,
     `Jours depuis la mise en relation: ${context.daysLinked}`,
     'Questions déjà posées (de la plus récente à la plus ancienne):',
     recentList,
@@ -272,13 +287,3 @@ async function generateWithClaude(
   }
 }
 
-function pickFallback(linkId: string, date: string): { question: string; category: string; source: 'library' } {
-  let h = 2166136261;
-  const input = `${linkId}:${date}`;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  const picked = FALLBACK[Math.abs(h) % FALLBACK.length];
-  return { ...picked, source: 'library' };
-}

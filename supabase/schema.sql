@@ -30,7 +30,11 @@ create table if not exists public.links (
   -- 00 h 30 tombe dans le lendemain et casse une série à tort.
   day_start_hour smallint not null default 4
     constraint links_day_start_hour_check check (day_start_hour between 0 and 8),
-  time_zone_changed_at timestamptz
+  time_zone_changed_at timestamptz,
+  -- Deux personnes partagent un contenu, donc une langue. Sans elle, l'IA
+  -- écrirait la question du jour en français sous une interface en japonais.
+  locale text not null default 'fr'
+    constraint links_locale_check check (locale in ('fr', 'es', 'pt', 'it', 'ar', 'zh', 'ja'))
 );
 
 create table if not exists public.link_members (
@@ -287,7 +291,11 @@ begin
   return candidate;
 end $$;
 
-create or replace function public.create_link(p_mode text default 'couple', p_time_zone text default null)
+create or replace function public.create_link(
+  p_mode text default 'couple',
+  p_time_zone text default null,
+  p_locale text default null
+)
 returns table (link_id uuid, invite_code text)
 language plpgsql security definer set search_path = public as $$
 declare
@@ -296,6 +304,7 @@ declare
   v_code text;
   v_mode text := coalesce(p_mode, 'couple');
   v_tz text := coalesce(nullif(btrim(p_time_zone), ''), 'Europe/Paris');
+  v_locale text := coalesce(nullif(btrim(p_locale), ''), 'fr');
 begin
   if v_uid is null then
     raise exception 'auth';
@@ -306,9 +315,12 @@ begin
   if v_mode not in ('couple', 'friends', 'random') then
     v_mode := 'couple';
   end if;
+  if v_locale not in ('fr', 'es', 'pt', 'it', 'ar', 'zh', 'ja') then
+    v_locale := 'fr';
+  end if;
 
-  insert into public.links (mode, created_by, time_zone)
-  values (v_mode, v_uid, v_tz) returning id into v_link;
+  insert into public.links (mode, created_by, time_zone, locale)
+  values (v_mode, v_uid, v_tz, v_locale) returning id into v_link;
   insert into public.link_members (link_id, user_id) values (v_link, v_uid);
   v_code := public.new_invite_code();
   insert into public.invites (code, link_id, created_by) values (v_code, v_link, v_uid);
@@ -463,8 +475,22 @@ begin
   where id = v_link;
 end $$;
 
--- Porte le jour et le fuseau : le client n'a plus aucune raison de calculer
--- une date, et n'en a plus le droit.
+/** Changer la langue du couple. Comme le fuseau : explicite, jamais deviné. */
+create or replace function public.set_link_locale(p_locale text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_link uuid := public.my_link_id();
+begin
+  if v_link is null then
+    raise exception 'no_link';
+  end if;
+  update public.links set locale = p_locale where id = v_link;
+exception when check_violation then
+  raise exception 'invalid_locale';
+end $$;
+
+-- Porte le jour, le fuseau et la langue : le client n'a plus aucune raison de
+-- calculer une date, et n'en a plus le droit.
 create or replace function public.my_link()
 returns table (
   link_id uuid,
@@ -474,6 +500,7 @@ returns table (
   time_zone text,
   day_start_hour smallint,
   today date,
+  locale text,
   partner_id uuid,
   partner_name text,
   partner_emoji text
@@ -487,6 +514,7 @@ language sql stable security definer set search_path = public as $$
     l.time_zone,
     l.day_start_hour,
     public.link_today(l.id),
+    l.locale,
     p.id,
     p.display_name,
     p.avatar_emoji
@@ -646,11 +674,12 @@ create policy reactions_delete on public.reactions for delete to authenticated
 
 revoke all on function public.new_invite_code() from public, anon, authenticated;
 
-grant execute on function public.create_link(text, text) to authenticated;
+grant execute on function public.create_link(text, text, text) to authenticated;
 grant execute on function public.join_link(text) to authenticated;
 grant execute on function public.leave_link() to authenticated;
 grant execute on function public.regenerate_invite() to authenticated;
 grant execute on function public.set_link_time_zone(text) to authenticated;
+grant execute on function public.set_link_locale(text) to authenticated;
 grant execute on function public.my_link() to authenticated;
 grant execute on function public.link_today(uuid) to authenticated;
 grant execute on function public.partner_answered(uuid) to authenticated;

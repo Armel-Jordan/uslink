@@ -1,5 +1,5 @@
 import { pickLibraryPrompt } from '@/lib/prompt-library';
-import { t } from '@/lib/strings';
+import { FALLBACK_LOCALE, LOCALES, locale as appLocale, t, type Locale } from '@/lib/strings';
 import { requireSupabase } from '@/lib/supabase';
 import type { Answer, DailyPrompt, HistoryEntry, Link, LinkMode, Profile, Session, TodayState } from '@/lib/types';
 
@@ -31,6 +31,7 @@ type MyLinkRow = {
   time_zone: string;
   day_start_hour: number;
   today: string;
+  locale: string;
   partner_id: string | null;
   partner_name: string | null;
   partner_emoji: string | null;
@@ -71,6 +72,7 @@ function toLink(row: MyLinkRow): Link {
     timeZone: row.time_zone,
     today: row.today,
     dayStartHour: row.day_start_hour,
+    locale: (LOCALES as string[]).includes(row.locale) ? (row.locale as Locale) : FALLBACK_LOCALE,
     partner:
       row.partner_id && row.partner_name
         ? {
@@ -92,6 +94,7 @@ function toDataError(message: string): DataError {
     'no_link',
     'invalid_time_zone',
     'time_zone_cooldown',
+    'invalid_locale',
     'auth',
   ];
   const hit = known.find((code) => message.includes(code));
@@ -187,6 +190,7 @@ export const supabaseAdapter: DataAdapter = {
     const { error } = await requireSupabase().rpc('create_link', {
       p_mode: mode,
       p_time_zone: deviceTimeZone(),
+      p_locale: appLocale,
     });
     if (error) throw toDataError(error.message);
     const link = await supabaseAdapter.getLink();
@@ -213,6 +217,14 @@ export const supabaseAdapter: DataAdapter = {
 
   async setTimeZone(timeZone) {
     const { error } = await requireSupabase().rpc('set_link_time_zone', { p_time_zone: timeZone });
+    if (error) throw toDataError(error.message);
+    const link = await supabaseAdapter.getLink();
+    if (!link) throw new DataError('no_link', t.profile.noLink);
+    return link;
+  },
+
+  async setLocale(next) {
+    const { error } = await requireSupabase().rpc('set_link_locale', { p_locale: next });
     if (error) throw toDataError(error.message);
     const link = await supabaseAdapter.getLink();
     if (!link) throw new DataError('no_link', t.profile.noLink);
@@ -372,7 +384,7 @@ async function generatePrompt(link: Link, date: string): Promise<DailyPrompt> {
   // UPDATE, donc un upsert en conflit échouerait en 42501 — c'est le seul
   // chemin qui laissait réellement une journée sans question. Premier arrivé
   // gagne, et on relit ce qui est en base plutôt que ce qu'on voulait écrire.
-  const picked = pickLibraryPrompt(link.mode, link.id, date);
+  const picked = pickLibraryPrompt(link.mode, link.id, date, link.locale);
   const { error } = await supabase.from('daily_prompts').upsert(
     {
       link_id: link.id,

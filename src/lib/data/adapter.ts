@@ -1,3 +1,4 @@
+import type { Locale } from '@/lib/strings';
 import type { Answer, DailyPrompt, HistoryEntry, Link, LinkMode, Profile, Session, TodayState } from '@/lib/types';
 
 export type DataErrorCode =
@@ -9,6 +10,7 @@ export type DataErrorCode =
   | 'no_prompt'
   | 'invalid_time_zone'
   | 'time_zone_cooldown'
+  | 'invalid_locale'
   | 'auth'
   | 'unknown';
 
@@ -46,6 +48,8 @@ export type DataAdapter = {
   regenerateInvite(): Promise<string>;
   /** Déplace l'horloge du couple. Explicite : un voyage ne bouge pas la journée de l'autre tout seul. */
   setTimeZone(timeZone: string): Promise<Link>;
+  /** Change la langue des questions. Le lien en a une seule, comme il n'a qu'une horloge. */
+  setLocale(locale: Locale): Promise<Link>;
   leaveLink(): Promise<void>;
 
   getToday(): Promise<TodayState | null>;

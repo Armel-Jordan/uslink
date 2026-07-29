@@ -11,7 +11,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { confirmDestructive } from '@/lib/confirm';
 import { DataError, deviceTimeZone, type DataErrorCode } from '@/lib/data';
 import { useSession } from '@/lib/session';
-import { t } from '@/lib/strings';
+import { LOCALE_NAMES, LOCALES, t } from '@/lib/strings';
 
 const EMOJIS = ['☀️', '🌙', '🌿', '🌸', '🔥', '🌊', '⭐️', '🍯'];
 
@@ -23,7 +23,7 @@ const MODE_LABELS: Record<string, string> = {
 
 export default function ProfileScreen() {
   const theme = useTheme();
-  const { profile, link, isDemo, updateProfile, setTimeZone, signOut, leaveLink } = useSession();
+  const { profile, link, isDemo, updateProfile, setTimeZone, setLocale, signOut, leaveLink } = useSession();
   const [name, setName] = useState(profile?.displayName ?? '');
   const [emoji, setEmoji] = useState(profile?.avatarEmoji ?? '☀️');
   const [saved, setSaved] = useState(false);
@@ -140,6 +140,37 @@ export default function ProfileScreen() {
               onPress={() => void run(() => setTimeZone(deviceTimeZone()))}
             />
           ) : null}
+
+          <ThemedText type="smallBold">{t.profile.language}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            {t.profile.languageHint}
+          </ThemedText>
+          <View style={styles.languages}>
+            {LOCALES.map((code) => {
+              const selected = code === link.locale;
+              return (
+                <Pressable
+                  key={code}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={LOCALE_NAMES[code]}
+                  disabled={busy}
+                  onPress={() => void run(() => setLocale(code))}
+                  style={[
+                    styles.language,
+                    {
+                      backgroundColor: selected ? theme.accentSoft : theme.background,
+                      borderColor: selected ? theme.accent : theme.border,
+                    },
+                  ]}>
+                  {/* Chaque langue s'écrit dans sa propre langue : on ne traduit
+                      pas un nom de langue, on l'affiche tel que ses locuteurs
+                      l'écrivent. */}
+                  <ThemedText type="small">{LOCALE_NAMES[code]}</ThemedText>
+                </Pressable>
+              );
+            })}
+          </View>
         </Card>
       ) : null}
 
@@ -178,5 +209,18 @@ const styles = StyleSheet.create({
   emojiText: {
     fontSize: 22,
     lineHeight: 28,
+  },
+  languages: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  language: {
+    paddingHorizontal: Spacing.three,
+    // 44 pt de haut : taille de cible minimale, atteinte par le padding plutôt
+    // que par une hauteur fixe, pour survivre à un texte agrandi.
+    paddingVertical: Spacing.three,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
   },
 });

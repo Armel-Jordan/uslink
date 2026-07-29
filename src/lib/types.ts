@@ -1,3 +1,5 @@
+import type { Locale } from '@/lib/strings';
+
 export type LinkMode = 'couple' | 'friends' | 'random';
 
 export type PromptSource = 'ai' | 'library';
@@ -26,6 +28,12 @@ export type Link = {
   today: string;
   /** Hour at which the link's day rolls over, so a 00:30 answer still counts. */
   dayStartHour: number;
+  /**
+   * Langue du lien. Comme l'horloge : deux personnes partagent un contenu,
+   * donc une langue. C'est elle qui décide de la langue des questions, pas le
+   * réglage du téléphone de chacun.
+   */
+  locale: Locale;
 };
 
 export type DailyPrompt = {

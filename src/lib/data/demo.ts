@@ -3,6 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { pickLibraryPrompt } from '@/lib/prompt-library';
 import type { Answer, DailyPrompt, HistoryEntry, Link, LinkMode, Profile, Session, TodayState } from '@/lib/types';
 
+import { locale as appLocale } from '@/lib/strings';
+
 import { DataError, deviceTimeZone, type DataAdapter } from './adapter';
 
 /**
@@ -70,8 +72,14 @@ function daysAgo(n: number) {
   return localDate(d);
 }
 
-function demoLink(partial: Omit<Link, 'timeZone' | 'today' | 'dayStartHour'>): Link {
-  return { ...partial, timeZone: deviceTimeZone(), today: localDate(), dayStartHour: DAY_START_HOUR };
+function demoLink(partial: Omit<Link, 'timeZone' | 'today' | 'dayStartHour' | 'locale'>): Link {
+  return {
+    ...partial,
+    timeZone: deviceTimeZone(),
+    today: localDate(),
+    dayStartHour: DAY_START_HOUR,
+    locale: appLocale,
+  };
 }
 
 function emptyState(): DemoState {
@@ -121,7 +129,7 @@ function answerFor(state: DemoState, promptId: string, authorId: string): Answer
 function ensurePrompt(state: DemoState, link: Link, date: string): DailyPrompt {
   const existing = state.prompts.find((p) => p.date === date);
   if (existing) return existing;
-  const picked = pickLibraryPrompt(link.mode, link.id, date);
+  const picked = pickLibraryPrompt(link.mode, link.id, date, link.locale);
   const prompt: DailyPrompt = {
     id: id('prompt'),
     date,
@@ -271,6 +279,14 @@ export const demoAdapter: DataAdapter = {
     const next = code();
     await write({ ...state, link: { ...link, inviteCode: next } });
     return next;
+  },
+
+  async setLocale(next) {
+    const state = await read();
+    const link = requireLink(state);
+    const updated = { ...link, locale: next };
+    await write({ ...state, link: updated });
+    return updated;
   },
 
   async setTimeZone(timeZone) {

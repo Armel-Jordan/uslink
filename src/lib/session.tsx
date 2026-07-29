@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { data } from '@/lib/data';
+import type { Locale } from '@/lib/strings';
 import type { Link, LinkMode, Profile, Session } from '@/lib/types';
 
 type SessionContextValue = {
@@ -18,6 +19,7 @@ type SessionContextValue = {
   joinLink: (code: string) => Promise<Link>;
   regenerateInvite: () => Promise<string>;
   setTimeZone: (timeZone: string) => Promise<void>;
+  setLocale: (locale: Locale) => Promise<void>;
   leaveLink: () => Promise<void>;
   updateProfile: (patch: Partial<Pick<Profile, 'displayName' | 'avatarEmoji'>>) => Promise<void>;
 };
@@ -112,6 +114,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // Le lien renvoyé porte un `today` recalculé : changer d'horloge peut
         // changer la journée en cours, donc la question affichée.
         setLink(await data.setTimeZone(timeZone));
+      },
+      setLocale: async (next) => {
+        setLink(await data.setLocale(next));
       },
       leaveLink: async () => {
         await data.leaveLink();
