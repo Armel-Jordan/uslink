@@ -85,4 +85,34 @@ abstract final class Couleurs {
 
   /// Texte posé SUR la braise (libellé d'action). 8,95:1.
   static const surBraise = Color(0xFF0B0A08);
+
+  // ------------------------------------------------------------ luminosité
+  //
+  // Il n'y a pas de thème clair. Il y a la nuit, avec un réglage qui la rend
+  // un peu moins profonde pour la lecture de jour — dehors, en plein soleil,
+  // #07080B ne se lit pas.
+  //
+  // **Seul le SOL monte : le fond et les lignes de structure.** La braise, la
+  // voix de l'autre et le texte ne bougent pas d'un cran. C'est ce qui
+  // distingue ce réglage d'un « mode jour » : l'écart lumineux qui porte la
+  // révélation reste identique du début à la fin de la course.
+  //
+  // Mesuré aux deux extrémités : texte 12,98 → 11,72:1, voix de l'autre
+  // 18,10 → 16,34:1, braise 9,06 → 8,18:1. Tout tient.
+
+  /// Fond au réglage maximal.
+  static const nuitJour = Color(0xFF14161C);
+
+  /// Trait au réglage maximal.
+  ///
+  /// Il monte AVEC le fond, et ce n'est pas cosmétique : à #5A6273 sur
+  /// [nuitJour] on tombe à 2,95:1, sous le seuil des éléments non textuels —
+  /// or ce trait porte l'anneau de focus, qui est un critère AA à lui seul.
+  static const traitJour = Color(0xFF6B7386);
+
+  /// Le fond, selon le réglage. `t` va de 0 (nuit pleine) à 1 (lecture de jour).
+  static Color fond(double t) => Color.lerp(nuit, nuitJour, t.clamp(0, 1))!;
+
+  /// Les lignes de structure suivent le fond, pour la raison ci-dessus.
+  static Color traitSelon(double t) => Color.lerp(trait, traitJour, t.clamp(0, 1))!;
 }

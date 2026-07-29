@@ -42,12 +42,39 @@ personnes et de l'interface. Aucune exception : c'est cette règle qui fait qu'o
 sait qui parle sans avoir à l'écrire.
 
 **Pas de carte, pas d'ombre, pas de coin arrondi** sauf les cercles. Le texte est
-posé à même la nuit.
+posé à même la nuit. **Pas d'emoji** : ils sont polychromes et détruiraient à eux
+seuls la discipline d'une couleur unique. Les fonctions sont des mots.
+
+**La luminosité déplace le sol, jamais la lumière.** Un réglage éclaircit le fond
+et les lignes de structure (#07080B → #14161C) pour la lecture de jour. La
+braise, la voix de l'autre et le texte courant ne bougent d'aucun cran : l'écart
+lumineux qui porte la révélation doit être identique aux deux extrémités de la
+course. C'est ce qui distingue ce réglage d'un « mode jour », qui lui viderait
+le produit de son cœur.
 
 **L'écart entre les deux voix est en luminance pure** (2,18:1). Il doit donc
 toujours être doublé d'une étiquette textuelle **des deux côtés** — jamais d'un
 seul, sinon l'asymétrie laisse deviner en niveaux de gris comme en lecture
 d'écran.
+
+## Aucune métrique ne compare
+
+On garde ce qui **monte** ou ce qui **décrit**, on retire ce qui **compare**. Le
+problème n'est pas le chiffre : « Série 12 j » posé sous « Record 21 j » dit
+littéralement « vous faites moins bien qu'avant », alors que « Ensemble depuis
+843 jours » ne blesse pas, parce qu'il ne fait que monter.
+
+Donc : pas de record, pas de « réussis » (un défi non fait deviendrait un échec —
+on dit « relevés »). C'est la même règle que l'échelle du débat : on se place, on
+ne se note pas.
+
+## Ce qu'on dit sur la confidentialité
+
+On écrit précisément ce qu'on fait, jamais le mot « chiffrement » seul. Chiffré
+en transit et au repos, RLS stricte, et l'IA ne voit jamais un prénom, une ville
+ni une adresse. Un vrai bout-en-bout empêcherait le serveur de lire — donc
+supprimerait la personnalisation, les statistiques et les résumés. Ce serait un
+argument marketing qui vide la maison.
 
 ## La règle de révélation est une règle de base de données
 

@@ -64,6 +64,43 @@ abstract final class Fr {
   static const defiReleve = 'relevé';
   static const defiManque = 'pas cette fois';
 
+  // ---------------------------------------------------------- les métriques
+  //
+  // RÈGLE: on garde ce qui MONTE ou ce qui DÉCRIT, on retire ce qui COMPARE.
+  //
+  // Le problème n'est pas le chiffre, c'est la comparaison. « Série 12 j » à
+  // côté de « Record 21 j » dit littéralement « vous faites moins bien
+  // qu'avant » ; « Ensemble depuis 843 jours » ne fait pas mal parce qu'il ne
+  // monte que.
+  //
+  // Donc: pas de record, pas de « réussis » (un défi non fait deviendrait un
+  // échec). Comme sur l'échelle du débat — on se place, on ne se note pas.
+
+  static String serieEnCours(int n) => n <= 1 ? '$n jour de suite' : '$n jours de suite';
+  static String echanges(int n) => n <= 1 ? '$n échange' : '$n échanges';
+
+  /// « relevés », jamais « réussis » : un couple qui a ouvert un défi sans le
+  /// finir n'a rien raté.
+  static String defisReleves(int n) => n <= 1 ? '$n défi relevé' : '$n défis relevés';
+
+  // ------------------------------------------------------ la confidentialité
+  //
+  // On dit précisément ce qu'on fait, plutôt que de brandir le mot
+  // « chiffrement ». Un vrai bout-en-bout empêcherait le serveur de lire —
+  // donc supprimerait la personnalisation, les statistiques et les résumés.
+  // Ce serait un argument marketing qui vide la maison.
+
+  static const confidentialiteTitre = 'Vos réponses';
+  static const confidentialiteCorps =
+      'Vos échanges voyagent chiffrés et sont stockés chiffrés. '
+      'Aucun autre couple ne peut les lire, jamais — c’est une règle de la '
+      'base de données, pas un réglage.';
+  static const iaTitre = 'Ce que l’IA voit';
+  static const iaCorps =
+      'Elle écrit la question du jour à partir de votre mode, de vos centres '
+      'd’intérêt et des thèmes déjà abordés. '
+      'Elle ne voit jamais votre prénom, votre ville, ni votre adresse e-mail.';
+
   // ------------------------------------------------------------- les erreurs
 
   static const erreurReseau = 'Votre réponse n’est pas partie.';

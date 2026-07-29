@@ -48,6 +48,22 @@ void arbitrages() {
     expect(Mesures.reserveMin, 96.0);
   });
 
+  test('la luminosite ne deplace que le sol', () {
+    // Il n'y a pas de thème clair : il y a la nuit, plus ou moins profonde.
+    // Le fond ET les lignes de structure montent — le trait porte l'anneau de
+    // focus, qui tomberait à 2,95:1 sinon, sous le seuil AA.
+    expect(Couleurs.fond(0), Couleurs.nuit);
+    expect(Couleurs.fond(1), Couleurs.nuitJour);
+    expect(Couleurs.traitSelon(1), Couleurs.traitJour);
+
+    // Ces trois-là n'ont AUCUNE variante, et c'est tout le point : l'écart
+    // lumineux qui porte la révélation reste identique du début à la fin de
+    // la course. C'est ce qui distingue ce réglage d'un « mode jour ».
+    expect(Couleurs.braise, const Color(0xFFFF9256));
+    expect(Couleurs.voixAutre, const Color(0xFFFFF1E6));
+    expect(Couleurs.texte, const Color(0xFFD6CFC7));
+  });
+
   test('le flou de r\u00e9v\u00e9lation est d\u00e9sactiv\u00e9 par d\u00e9faut', () {
     // Une passe de rendu hors écran par ligne et par frame, sur le moment le
     // plus important de l'app. Le repli est fluide partout.
